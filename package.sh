@@ -10,6 +10,7 @@ ZIP_FILE="${OUTPUT_DIR}/${EXT_NAME}_v${EXT_VERSION}.zip"
 
 cd "$(dirname "$0")"
 
+# 打包上架用文件，排除 reference 目录、SVG 文件和开发文档
 zip -r "$ZIP_FILE" \
   manifest.json \
   background.js \
@@ -20,7 +21,8 @@ zip -r "$ZIP_FILE" \
   icons/ \
   js/ \
   lib/ \
-  docs/
+  -x "icons/*.svg" \
+  -x "*/.*"
 
 echo "Packaging completed: $ZIP_FILE"
 echo "File size: $(du -h "$ZIP_FILE" | cut -f1)"

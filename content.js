@@ -3,6 +3,21 @@
  * 在页面上覆盖半透明遮罩，用户拖拽选择矩形区域
  */
 
+if (!window.__sfContentInjected) {
+  window.__sfContentInjected = true;
+
+  const _origLog = console.log.bind(console);
+  console.log = function(...args) {
+    _origLog(...args);
+    try {
+      chrome.runtime.sendMessage({
+        action: 'contentLog',
+        message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')
+      });
+    } catch (e) {}
+  };
+}
+
 let overlayDiv = null;
 let selectionDiv = null;
 let isSelecting = false;
@@ -17,7 +32,65 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ success: true });
     return true;
   }
+
+  if (request.action === 'fillTotpCode') {
+    fillTotpCode(request.totpCode);
+    sendResponse({ success: true });
+    return true;
+  }
 });
+
+function fillTotpCode(totpCode) {
+  console.log('[fillTotpCode] 尝试填入TOTP验证码');
+
+  function tryFillTotp() {
+    const totpField = document.querySelector('#totpCode') ||
+      document.querySelector('input[name="totpCode"]') ||
+      document.querySelector('#emc') ||
+      document.querySelector('input[name="emc"]') ||
+      document.querySelector('input[autocomplete="one-time-code"]');
+
+    if (!totpField) {
+      console.log('[fillTotpCode] 未找到TOTP输入框');
+      return false;
+    }
+
+    console.log('[fillTotpCode] 找到TOTP输入框，填入验证码');
+    const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    nativeSet.call(totpField, totpCode);
+    totpField.dispatchEvent(new Event('input', { bubbles: true }));
+    totpField.dispatchEvent(new Event('change', { bubbles: true }));
+
+    const verifyButton = document.querySelector('#save') ||
+      document.querySelector('input[name="save"]') ||
+      document.querySelector('button[name="save"]') ||
+      document.querySelector('#verify');
+
+    if (verifyButton) {
+      console.log('[fillTotpCode] 找到验证按钮，点击提交');
+      setTimeout(() => verifyButton.click(), 300);
+    } else {
+      console.log('[fillTotpCode] 未找到验证按钮');
+    }
+
+    return true;
+  }
+
+  if (!tryFillTotp()) {
+    console.log('[fillTotpCode] 当前未找到TOTP框，启动DOM监听等待 (10秒)');
+    const observer = new MutationObserver(() => {
+      if (tryFillTotp()) {
+        console.log('[fillTotpCode] DOM变化后找到TOTP框并填入');
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    setTimeout(() => {
+      console.log('[fillTotpCode] TOTP监听超时结束');
+      observer.disconnect();
+    }, 10000);
+  }
+}
 
 function startSelection() {
   if (overlayDiv) return;

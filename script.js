@@ -1,5 +1,4 @@
 const STORAGE_KEY = 'salesforce_environments';
-const SERVER_CONFIG_KEY = 'salesforce_server_config';
 const MAX_ENVIRONMENTS = 50;
 
 const TYPE_URLS = {
@@ -17,11 +16,9 @@ const TYPE_LABELS = {
 let environments = [];
 let editingEnvId = null;
 let deletingEnvId = null;
-let serverConfig = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadEnvironments();
-  await loadServerConfig();
   renderEnvList();
   updateCountDisplay();
   setupEventListeners();
@@ -56,27 +53,8 @@ async function saveEnvironments() {
   }
 }
 
-async function loadServerConfig() {
-  try {
-    const result = await chrome.storage.local.get(SERVER_CONFIG_KEY);
-    serverConfig = result[SERVER_CONFIG_KEY] || {};
-  } catch (e) {
-    serverConfig = {};
-  }
-}
-
-async function saveServerConfig() {
-  try {
-    await chrome.storage.local.set({ [SERVER_CONFIG_KEY]: serverConfig });
-  } catch (e) {
-    console.error('Failed to save server config:', e);
-  }
-}
-
 function setupEventListeners() {
   document.getElementById('addEnvBtn').addEventListener('click', openAddModal);
-  document.getElementById('syncBtn').addEventListener('click', handleSync);
-  document.getElementById('serverConfigBtn').addEventListener('click', openServerConfigModal);
 
   const editEnvironmentSelect = document.getElementById('editEnvironment');
   editEnvironmentSelect.addEventListener('change', () => {
@@ -94,17 +72,10 @@ function setupEventListeners() {
   document.getElementById('deleteModal').addEventListener('click', (e) => {
     if (e.target.id === 'deleteModal') closeDeleteModal();
   });
-  document.getElementById('serverConfigModal').addEventListener('click', (e) => {
-    if (e.target.id === 'serverConfigModal') closeServerConfigModal();
-  });
 
   document.getElementById('saveEditBtn').addEventListener('click', handleSaveForm);
   document.getElementById('cancelDeleteBtn').addEventListener('click', closeDeleteModal);
   document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
-  document.getElementById('saveServerConfigBtn').addEventListener('click', saveServerConfigForm);
-  document.getElementById('cancelServerConfigBtn').addEventListener('click', closeServerConfigModal);
-  document.getElementById('uploadDataBtn').addEventListener('click', uploadDataToServer);
-  document.getElementById('downloadDataBtn').addEventListener('click', downloadDataFromServer);
 
   document.getElementById('scanQRBtn').addEventListener('click', scanQRCode);
   document.getElementById('uploadQRBtn').addEventListener('click', () => {
@@ -158,19 +129,6 @@ function setupEventListeners() {
   });
 }
 
-function handleSync() {
-  const syncBtn = document.getElementById('syncBtn');
-  syncBtn.classList.add('syncing');
-  
-  chrome.storage.sync.get(STORAGE_KEY).then(() => {
-    syncBtn.classList.remove('syncing');
-    showToast('同步完成');
-  }).catch(() => {
-    syncBtn.classList.remove('syncing');
-    showToast('同步失败，请检查网络');
-  });
-}
-
 function openAddModal() {
   if (environments.length >= MAX_ENVIRONMENTS) {
     showToast(`已达最大数量（${MAX_ENVIRONMENTS}条），请删除部分环境后再添加`);
@@ -205,102 +163,6 @@ function openEditModal(envId) {
   document.getElementById('editTotpSecret').value = env.totpSecret || '';
   updateMFAStatusUI(!!env.totpSecret);
   document.getElementById('editModal').classList.add('show');
-}
-
-function openServerConfigModal() {
-  document.getElementById('serverUrl').value = serverConfig.url || '';
-  document.getElementById('apiKey').value = serverConfig.apiKey || '';
-  document.getElementById('serverConfigModal').classList.add('show');
-}
-
-function closeServerConfigModal() {
-  document.getElementById('serverConfigModal').classList.remove('show');
-}
-
-function saveServerConfigForm() {
-  const url = document.getElementById('serverUrl').value.trim();
-  const apiKey = document.getElementById('apiKey').value.trim();
-
-  serverConfig = { url, apiKey };
-  saveServerConfig();
-  closeServerConfigModal();
-  showToast('服务器配置已保存');
-}
-
-async function uploadDataToServer() {
-  if (!serverConfig.url || !serverConfig.apiKey) {
-    showToast('请先配置服务器地址和API Key');
-    return;
-  }
-
-  const btn = document.getElementById('uploadDataBtn');
-  const originalText = btn.textContent;
-  btn.textContent = '上传中...';
-  btn.disabled = true;
-
-  try {
-    const response = await fetch(serverConfig.url + '/api/salesforce/upload', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': serverConfig.apiKey
-      },
-      body: JSON.stringify({ data: environments })
-    });
-
-    if (response.ok) {
-      showToast('数据上传成功');
-    } else {
-      showToast('上传失败');
-    }
-  } catch (e) {
-    console.error('Upload failed:', e);
-    showToast('上传失败，请检查网络');
-  } finally {
-    btn.textContent = originalText;
-    btn.disabled = false;
-  }
-}
-
-async function downloadDataFromServer() {
-  if (!serverConfig.url || !serverConfig.apiKey) {
-    showToast('请先配置服务器地址和API Key');
-    return;
-  }
-
-  const btn = document.getElementById('downloadDataBtn');
-  const originalText = btn.textContent;
-  btn.textContent = '下载中...';
-  btn.disabled = true;
-
-  try {
-    const response = await fetch(serverConfig.url + '/api/salesforce/download', {
-      method: 'GET',
-      headers: {
-        'X-API-Key': serverConfig.apiKey
-      }
-    });
-
-    if (response.ok) {
-      const result = await response.json();
-      if (result.data && Array.isArray(result.data)) {
-        environments = result.data;
-        saveEnvironments();
-        renderEnvList();
-        showToast('数据下载成功');
-      } else {
-        showToast('服务器返回数据格式错误');
-      }
-    } else {
-      showToast('下载失败');
-    }
-  } catch (e) {
-    console.error('Download failed:', e);
-    showToast('下载失败，请检查网络');
-  } finally {
-    btn.textContent = originalText;
-    btn.disabled = false;
-  }
 }
 
 function handleSaveForm() {
@@ -435,65 +297,73 @@ async function loginEnv(envId) {
   showToast('登录中...');
 
   try {
-    console.log('[loginEnv] 发送 soapLogin 请求', { type: env.type, url: env.url, username: env.username });
-    const result = await chrome.runtime.sendMessage({
+    console.log('[loginEnv] 方式1: SOAP API 登录', { type: env.type, url: env.url, username: env.username });
+    const soapResult = await chrome.runtime.sendMessage({
       action: 'soapLogin',
       type: env.type,
       url: env.url,
       username: env.username,
       password: env.password
     });
-    console.log('[loginEnv] 收到 background 响应', result);
+    console.log('[loginEnv] SOAP 响应', soapResult);
 
-    if (!result || !result.success) {
-      console.log('[loginEnv] 请求失败，回退到手动登录');
-      fallbackToManualLogin(env, envId);
-      return;
-    }
+    if (soapResult && soapResult.success && soapResult.ok) {
+      console.log('[loginEnv] SOAP 登录成功，解析 XML');
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(soapResult.xmlText, 'text/xml');
 
-    if (!result.ok) {
-      console.log('[loginEnv] HTTP 状态非 OK，解析 SOAP 错误');
-      const errorMsg = parseSOAPFault(result.xmlText);
-      console.log('[loginEnv] 解析到错误信息', errorMsg);
-      if (errorMsg.includes('MFA') || errorMsg.includes('Multi-Factor') || errorMsg.includes('multi-factor')) {
-        showToast('MFA认证，请使用验证码登录');
-        fallbackToManualLogin(env, envId);
-      } else {
-        showToast(errorMsg);
+      const sessionIdEl = xmlDoc.querySelector('sessionId');
+      const serverUrlEl = xmlDoc.querySelector('serverUrl');
+      console.log('[loginEnv] XML 解析', { sessionId: sessionIdEl?.textContent, serverUrl: serverUrlEl?.textContent });
+
+      if (sessionIdEl && serverUrlEl) {
+        const frontdoorUrl = buildFrontdoorUrl(serverUrlEl.textContent, sessionIdEl.textContent);
+        console.log('[loginEnv] frontdoor URL', frontdoorUrl);
+        chrome.tabs.create({ url: frontdoorUrl });
+        showToast('登录成功');
+        return;
       }
-      return;
     }
 
-    console.log('[loginEnv] HTTP OK，开始解析 XML');
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(result.xmlText, 'text/xml');
-
-    const sessionIdEl = xmlDoc.querySelector('sessionId');
-    const serverUrlEl = xmlDoc.querySelector('serverUrl');
-    console.log('[loginEnv] XML 解析结果', { sessionId: sessionIdEl?.textContent, serverUrl: serverUrlEl?.textContent });
-
-    if (!sessionIdEl || !serverUrlEl) {
-      showToast('登录响应解析失败');
-      return;
-    }
-
-    const frontdoorUrl = buildFrontdoorUrl(serverUrlEl.textContent, sessionIdEl.textContent);
-    console.log('[loginEnv] 拼接 frontdoor URL', frontdoorUrl);
-    chrome.tabs.create({ url: frontdoorUrl });
-    showToast('登录成功');
+    console.log('[loginEnv] SOAP 失败，切换方式2: 隐藏表单POST');
+    await formPostLogin(env, envId);
 
   } catch (error) {
-    console.log('[loginEnv] catch 异常', error);
-    fallbackToManualLogin(env, envId);
+    console.log('[loginEnv] 异常，切换隐藏表单POST', error);
+    await formPostLogin(env, envId);
   }
 }
 
-function fallbackToManualLogin(env, envId) {
+async function formPostLogin(env, envId) {
   const loginUrl = env.url || TYPE_URLS[env.type];
-  chrome.tabs.create({ url: loginUrl });
-  showToast('请手动登录');
+  let totpCode = null;
+
   if (env.totpSecret) {
-    showTotpNote(envId);
+    try {
+      totpCode = await TOTP.generate(env.totpSecret);
+    } catch (e) {
+      console.log('[formPostLogin] TOTP 生成失败', e);
+    }
+  }
+
+  try {
+    await chrome.runtime.sendMessage({
+      action: 'formPostLogin',
+      loginUrl,
+      username: env.username,
+      password: env.password,
+      totpCode
+    });
+    showToast('登录中');
+    if (env.totpSecret) {
+      showTotpNote(envId);
+    }
+  } catch (error) {
+    chrome.tabs.create({ url: loginUrl });
+    showToast('请手动登录');
+    if (env.totpSecret) {
+      showTotpNote(envId);
+    }
   }
 }
 

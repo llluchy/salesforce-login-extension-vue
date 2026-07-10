@@ -1,6 +1,9 @@
 # Build output
 dist/
 
+# Reference / competitive analysis
+reference/
+
 # macOS
 .DS_Store
 
