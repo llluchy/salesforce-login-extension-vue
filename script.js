@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'salesforce_environments';
+const STORAGE_KEY_GROUPS = 'salesforce_groups';
 const MAX_ENVIRONMENTS = 50;
 
 const TYPE_URLS = {
@@ -14,12 +15,17 @@ const TYPE_LABELS = {
 };
 
 let environments = [];
+let groups = [];
 let editingEnvId = null;
 let deletingEnvId = null;
+let editingGroupId = null;
+let deletingGroupId = null;
+let isSecondaryModal = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
+  await loadGroups();
   await loadEnvironments();
-  renderEnvList();
+  renderGroupedEnvList();
   updateCountDisplay();
   setupEventListeners();
 });
@@ -53,8 +59,38 @@ async function saveEnvironments() {
   }
 }
 
+async function loadGroups() {
+  try {
+    const result = await chrome.storage.sync.get(STORAGE_KEY_GROUPS);
+    groups = result[STORAGE_KEY_GROUPS] || [];
+  } catch (e) {
+    console.error('Failed to load groups from sync:', e);
+    try {
+      const localResult = await chrome.storage.local.get(STORAGE_KEY_GROUPS);
+      groups = localResult[STORAGE_KEY_GROUPS] || [];
+    } catch (localErr) {
+      groups = [];
+    }
+  }
+}
+
+async function saveGroups() {
+  try {
+    await chrome.storage.sync.set({ [STORAGE_KEY_GROUPS]: groups });
+    await chrome.storage.local.set({ [STORAGE_KEY_GROUPS]: groups });
+  } catch (e) {
+    console.error('Failed to save groups:', e);
+    try {
+      await chrome.storage.local.set({ [STORAGE_KEY_GROUPS]: groups });
+    } catch (localErr) {
+      console.error('Failed to save groups to local:', localErr);
+    }
+  }
+}
+
 function setupEventListeners() {
   document.getElementById('addEnvBtn').addEventListener('click', openAddModal);
+  document.getElementById('addGroupBtn').addEventListener('click', () => openGroupModal(false));
 
   const editEnvironmentSelect = document.getElementById('editEnvironment');
   editEnvironmentSelect.addEventListener('change', () => {
@@ -65,12 +101,6 @@ function setupEventListeners() {
   document.getElementById('cancelEditBtn').addEventListener('click', closeModal);
   document.querySelectorAll('.modal-close').forEach(btn => {
     btn.addEventListener('click', closeModal);
-  });
-  document.getElementById('editModal').addEventListener('click', (e) => {
-    if (e.target.id === 'editModal') closeModal();
-  });
-  document.getElementById('deleteModal').addEventListener('click', (e) => {
-    if (e.target.id === 'deleteModal') closeDeleteModal();
   });
 
   document.getElementById('saveEditBtn').addEventListener('click', handleSaveForm);
@@ -83,6 +113,19 @@ function setupEventListeners() {
   });
   document.getElementById('qrFileInput').addEventListener('change', handleQRUpload);
   document.getElementById('unbindTotpBtn').addEventListener('click', unbindTotp);
+
+  document.getElementById('quickAddGroupBtn').addEventListener('click', () => openGroupModal(true));
+  document.getElementById('cancelGroupBtn').addEventListener('click', closeGroupModal);
+  document.querySelectorAll('#groupModal .modal-close').forEach(btn => {
+    btn.addEventListener('click', closeGroupModal);
+  });
+  document.getElementById('saveGroupBtn').addEventListener('click', handleSaveGroup);
+
+  document.getElementById('cancelDeleteGroupBtn').addEventListener('click', closeDeleteGroupModal);
+  document.querySelectorAll('#deleteGroupModal .modal-close').forEach(btn => {
+    btn.addEventListener('click', closeDeleteGroupModal);
+  });
+  document.getElementById('confirmDeleteGroupBtn').addEventListener('click', confirmDeleteGroup);
 
   document.getElementById('envList').addEventListener('click', (e) => {
     const btn = e.target.closest('.env-action-btn');
@@ -112,6 +155,26 @@ function setupEventListeners() {
       return;
     }
 
+    const groupHeader = e.target.closest('.group-header');
+    if (groupHeader && !e.target.closest('.group-action-btn')) {
+      const groupId = groupHeader.dataset.groupId;
+      toggleGroupCollapse(groupId);
+      return;
+    }
+
+    const groupActionBtn = e.target.closest('.group-action-btn');
+    if (groupActionBtn && groupActionBtn.dataset.action) {
+      const action = groupActionBtn.dataset.action;
+      const groupId = groupActionBtn.dataset.groupId;
+
+      if (action === 'editGroup') {
+        openEditGroupModal(groupId);
+      } else if (action === 'deleteGroup') {
+        openDeleteGroupModal(groupId);
+      }
+      return;
+    }
+
     const codeEl = e.target.closest('.totp-code');
     if (codeEl) {
       const envId = codeEl.dataset.codeDisplay;
@@ -122,7 +185,7 @@ function setupEventListeners() {
   chrome.storage.onChanged.addListener((changes, namespace) => {
     if (namespace === 'sync' && changes[STORAGE_KEY]) {
       loadEnvironments().then(() => {
-        renderEnvList();
+        renderGroupedEnvList();
         showToast('数据已同步');
       });
     }
@@ -144,6 +207,8 @@ function openAddModal() {
   document.getElementById('editCustomEnv').value = '';
   document.getElementById('editCustomEnvGroup').style.display = 'none';
   document.getElementById('editTotpSecret').value = '';
+  refreshGroupSelect();
+  document.getElementById('editGroup').value = '';
   updateMFAStatusUI(false);
   document.getElementById('editModal').classList.add('show');
 }
@@ -161,6 +226,8 @@ function openEditModal(envId) {
   document.getElementById('editCustomEnv').value = env.url || '';
   document.getElementById('editCustomEnvGroup').style.display = (env.type === 'custom') ? 'flex' : 'none';
   document.getElementById('editTotpSecret').value = env.totpSecret || '';
+  refreshGroupSelect();
+  document.getElementById('editGroup').value = env.groupId || '';
   updateMFAStatusUI(!!env.totpSecret);
   document.getElementById('editModal').classList.add('show');
 }
@@ -172,6 +239,7 @@ function handleSaveForm() {
   const type = document.getElementById('editEnvironment').value;
   const customEnv = document.getElementById('editCustomEnv').value.trim();
   const totpSecret = document.getElementById('editTotpSecret').value.trim().toUpperCase().replace(/[^A-Z2-7]/g, '');
+  const groupId = document.getElementById('editGroup').value || null;
 
   if (!alias) {
     showToast('请输入别名');
@@ -205,10 +273,11 @@ function handleSaveForm() {
         password,
         type,
         url,
-        totpSecret: totpSecret || undefined
+        totpSecret: totpSecret || undefined,
+        groupId
       };
       saveEnvironments();
-      renderEnvList();
+      renderGroupedEnvList();
       closeModal();
       showToast('已更新');
     }
@@ -220,18 +289,19 @@ function handleSaveForm() {
       password,
       type,
       url,
-      totpSecret: totpSecret || undefined
+      totpSecret: totpSecret || undefined,
+      groupId
     };
     environments.push(newEnv);
     saveEnvironments();
-    renderEnvList();
+    renderGroupedEnvList();
     updateCountDisplay();
     closeModal();
     showToast('已添加');
   }
 }
 
-function renderEnvList() {
+function renderGroupedEnvList() {
   const envList = document.getElementById('envList');
 
   if (environments.length === 0) {
@@ -245,9 +315,60 @@ function renderEnvList() {
     return;
   }
 
-  envList.innerHTML = environments.map(env => `
+  const groupedEnvs = {};
+
+  groupedEnvs[''] = environments.filter(e => !e.groupId);
+
+  groups.forEach(g => {
+    groupedEnvs[g.id] = environments.filter(e => e.groupId === g.id);
+  });
+
+  const orderedGroups = [
+    { id: '', name: '未选择', isVirtual: true, collapsed: false },
+    ...groups.sort((a, b) => a.order - b.order)
+  ];
+
+  envList.innerHTML = orderedGroups.map(group => `
+    <div class="group-section ${group.collapsed ? 'collapsed' : ''}"
+         data-group-id="${group.id}">
+      <div class="group-header" data-group-id="${group.id}">
+        <div class="group-title-wrapper">
+          <svg class="group-collapse-icon" viewBox="0 0 24 24">
+            <path d="M7 10l5 5 5-5z"/>
+          </svg>
+          <span class="group-name">${escapeHtml(group.name)}</span>
+          <span class="group-count">${groupedEnvs[group.id]?.length || 0}</span>
+        </div>
+        ${!group.isVirtual ? `
+        <div class="group-actions">
+          <button class="group-action-btn group-drag-handle" draggable="true" data-group-id="${group.id}" title="拖拽排序">
+            <svg viewBox="0 0 24 24"><path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+          </button>
+          <button class="group-action-btn" data-action="editGroup" data-group-id="${group.id}" title="编辑分组">
+            <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+          </button>
+          <button class="group-action-btn" data-action="deleteGroup" data-group-id="${group.id}" title="删除分组">
+            <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          </button>
+        </div>
+        ` : ''}
+      </div>
+      <div class="group-content" data-group-content="${group.id}">
+        ${(groupedEnvs[group.id] || []).map(env => renderEnvItem(env)).join('')}
+        ${(groupedEnvs[group.id]?.length === 0) ? `
+          <div class="empty-group-hint">该分组暂无环境</div>
+        ` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  setupDragListeners();
+}
+
+function renderEnvItem(env) {
+  return `
     <div class="env-wrapper" data-id="${env.id}">
-      <div class="env-item" data-id="${env.id}">
+      <div class="env-item" data-id="${env.id}" data-group-id="${env.groupId || ''}">
         <div class="env-info">
           <div class="env-alias">${escapeHtml(env.alias)}</div>
           <div class="env-meta">
@@ -256,6 +377,9 @@ function renderEnvList() {
           </div>
         </div>
         <div class="env-actions">
+          <button class="env-action-btn env-drag-handle" draggable="true" data-id="${env.id}" title="拖拽排序">
+            <svg viewBox="0 0 24 24"><path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+          </button>
           <button class="env-action-btn login" data-action="login" data-id="${env.id}" title="登录">
             <svg viewBox="0 0 24 24"><path d="M11 7L9.6 8.4l2.6 2.6H2v2h10.2l-2.6 2.6L11 17l5-5-5-5zm9 12h-8v2h8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-8v2h8v14z"/></svg>
           </button>
@@ -282,7 +406,7 @@ function renderEnvList() {
         </div>
       </div>
     </div>
-  `).join('');
+  `;
 }
 
 async function loginEnv(envId) {
@@ -656,4 +780,629 @@ async function copyTotpCode(envId) {
   } catch (e) {
     showToast('复制失败');
   }
+}
+
+// ========== 分组管理功能 ==========
+
+function openGroupModal(isSecondary = false) {
+  isSecondaryModal = isSecondary;
+  editingGroupId = null;
+  document.getElementById('groupModalTitle').textContent = '创建分组';
+  document.getElementById('groupName').value = '';
+
+  if (isSecondary) {
+    document.getElementById('editModal').style.zIndex = '100';
+    document.getElementById('groupModal').style.zIndex = '150';
+  }
+
+  document.getElementById('groupModal').classList.add('show');
+}
+
+function closeGroupModal() {
+  document.getElementById('groupModal').classList.remove('show');
+  editingGroupId = null;
+
+  if (isSecondaryModal) {
+    isSecondaryModal = false;
+    refreshGroupSelect();
+    document.getElementById('editModal').style.zIndex = '100';
+  }
+}
+
+function handleSaveGroup() {
+  const name = document.getElementById('groupName').value.trim();
+
+  if (!name) {
+    showToast('请输入分组名称');
+    return;
+  }
+
+  if (editingGroupId) {
+    const group = groups.find(g => g.id === editingGroupId);
+    if (!group) return;
+
+    if (groups.some(g => g.id !== editingGroupId && g.name === name)) {
+      showToast('分组名称已存在');
+      return;
+    }
+
+    group.name = name;
+    saveGroups();
+    closeGroupModal();
+    renderGroupedEnvList();
+    showToast('分组已更新');
+  } else {
+    if (groups.some(g => g.name === name)) {
+      showToast('分组名称已存在');
+      return;
+    }
+
+    const newGroup = {
+      id: 'group_' + Date.now(),
+      name,
+      order: groups.length,
+      collapsed: false
+    };
+
+    groups.push(newGroup);
+    saveGroups();
+    closeGroupModal();
+
+    if (!isSecondaryModal) {
+      renderGroupedEnvList();
+    }
+
+    showToast('分组已创建');
+  }
+}
+
+function refreshGroupSelect() {
+  const select = document.getElementById('editGroup');
+  const currentValue = select.value;
+
+  select.innerHTML = `
+    <option value="">未选择</option>
+    ${groups.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')}
+  `;
+
+  if (groups.some(g => g.id === currentValue)) {
+    select.value = currentValue;
+  } else {
+    select.value = '';
+  }
+}
+
+function openEditGroupModal(groupId) {
+  const group = groups.find(g => g.id === groupId);
+  if (!group) return;
+
+  editingGroupId = groupId;
+  document.getElementById('groupModalTitle').textContent = '编辑分组';
+  document.getElementById('groupName').value = group.name;
+  document.getElementById('groupModal').classList.add('show');
+}
+
+function openDeleteGroupModal(groupId) {
+  const group = groups.find(g => g.id === groupId);
+  if (!group) return;
+
+  deletingGroupId = groupId;
+  document.getElementById('deleteGroupName').textContent = group.name;
+  document.getElementById('deleteGroupModal').classList.add('show');
+}
+
+function closeDeleteGroupModal() {
+  document.getElementById('deleteGroupModal').classList.remove('show');
+  deletingGroupId = null;
+}
+
+function confirmDeleteGroup() {
+  if (!deletingGroupId) return;
+
+  environments.forEach(env => {
+    if (env.groupId === deletingGroupId) {
+      env.groupId = null;
+    }
+  });
+
+  groups = groups.filter(g => g.id !== deletingGroupId);
+
+  groups.sort((a, b) => a.order - b.order);
+  groups.forEach((g, i) => g.order = i);
+
+  saveGroups();
+  saveEnvironments();
+  closeDeleteGroupModal();
+  renderGroupedEnvList();
+  showToast('分组已删除');
+}
+
+function toggleGroupCollapse(groupId) {
+  if (groupId === '') return;
+
+  const group = groups.find(g => g.id === groupId);
+  if (!group) return;
+
+  group.collapsed = !group.collapsed;
+  saveGroups();
+
+  const section = document.querySelector(`.group-section[data-group-id="${groupId}"]`);
+  if (section) {
+    section.classList.toggle('collapsed', group.collapsed);
+  }
+}
+
+// ========== 拖拽功能 ==========
+
+let draggedEnvId = null;
+let draggedEnvGroupId = null;
+let placeholderElement = null;
+let draggedGroupId = null;
+let currentDropPosition = null;
+let groupPlaceholderElement = null;
+let expandedGroups = [];
+
+function setupDragListeners() {
+  console.log('[DRAG] setupDragListeners called');
+  
+  const envList = document.getElementById('envList');
+  if (envList) {
+    envList.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    });
+  }
+
+  const envDragHandles = document.querySelectorAll('.env-drag-handle[draggable="true"]');
+  console.log('[DRAG] Found', envDragHandles.length, 'env-drag-handle elements');
+  envDragHandles.forEach((handle, i) => {
+    console.log('[DRAG] Env handle', i, ':', handle.dataset.id, 'parent:', handle.closest('.env-wrapper')?.dataset.id);
+    handle.addEventListener('dragstart', handleEnvDragStart);
+    handle.addEventListener('dragend', handleEnvDragEnd);
+  });
+
+  const envWrappers = document.querySelectorAll('.env-wrapper');
+  console.log('[DRAG] Found', envWrappers.length, 'env-wrapper elements');
+  envWrappers.forEach(wrapper => {
+    wrapper.addEventListener('dragover', handleEnvDragOver);
+    wrapper.addEventListener('drop', handleEnvDrop);
+  });
+
+  const groupHeaders = document.querySelectorAll('.group-header');
+  console.log('[DRAG] Found', groupHeaders.length, 'group-header elements');
+  groupHeaders.forEach(header => {
+    header.addEventListener('dragover', handleEnvDragOver);
+    header.addEventListener('drop', handleEnvDrop);
+  });
+
+  const groupContents = document.querySelectorAll('.group-content');
+  console.log('[DRAG] Found', groupContents.length, 'group-content elements');
+  groupContents.forEach(content => {
+    content.addEventListener('dragover', handleEnvDragOver);
+    content.addEventListener('drop', handleEnvDrop);
+  });
+
+  const groupDragHandles = document.querySelectorAll('.group-drag-handle[draggable="true"]');
+  console.log('[DRAG] Found', groupDragHandles.length, 'group-drag-handle elements');
+  groupDragHandles.forEach((handle, i) => {
+    console.log('[DRAG] Group handle', i, ':', handle.dataset.groupId, 'parent:', handle.closest('.group-section')?.dataset.groupId);
+    handle.addEventListener('dragstart', handleGroupDragStart);
+    handle.addEventListener('dragend', handleGroupDragEnd);
+  });
+
+  const groupSections = document.querySelectorAll('.group-section');
+  console.log('[DRAG] Found', groupSections.length, 'group-section elements');
+  groupSections.forEach(section => {
+    section.addEventListener('dragover', handleGroupDragOver);
+    section.addEventListener('drop', handleGroupDrop);
+  });
+}
+
+function handleEnvDragStart(e) {
+  e.stopPropagation();
+  console.log('[DRAG] handleEnvDragStart called');
+  console.log('[DRAG]   e.target:', e.target.tagName, e.target.className);
+  console.log('[DRAG]   e.currentTarget:', e.currentTarget.tagName, e.currentTarget.className);
+
+  const handle = e.currentTarget;
+  draggedEnvId = handle.dataset.id;
+  console.log('[DRAG]   handle.dataset.id:', draggedEnvId);
+
+  const wrapper = handle.closest('.env-wrapper');
+  console.log('[DRAG]   wrapper found:', !!wrapper, 'wrapper.dataset.id:', wrapper?.dataset.id);
+  if (!wrapper) {
+    console.log('[DRAG]   ERROR: wrapper not found!');
+    return;
+  }
+
+  const envItem = wrapper.querySelector('.env-item');
+  draggedEnvGroupId = envItem ? envItem.dataset.groupId || '' : '';
+  console.log('[DRAG]   draggedEnvGroupId:', draggedEnvGroupId);
+
+  wrapper.classList.add('dragging');
+  handle.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', draggedEnvId);
+
+  placeholderElement = document.createElement('div');
+  placeholderElement.className = 'drag-placeholder';
+  placeholderElement.textContent = '拖拽到此处';
+
+  document.querySelectorAll('.group-content').forEach(c => c.classList.add('drag-active'));
+
+  const envList = document.getElementById('envList');
+  if (envList) envList.classList.add('drag-active');
+  
+  console.log('[DRAG] handleEnvDragStart completed successfully');
+}
+
+function handleEnvDragEnd(e) {
+  e.stopPropagation();
+  console.log('[DRAG] handleEnvDragEnd called');
+
+  const handle = e.currentTarget;
+  handle.classList.remove('dragging');
+
+  const wrapper = handle.closest('.env-wrapper');
+  if (wrapper) wrapper.classList.remove('dragging');
+
+  if (placeholderElement && placeholderElement.parentNode) {
+    placeholderElement.parentNode.removeChild(placeholderElement);
+  }
+
+  placeholderElement = null;
+  draggedEnvId = null;
+  draggedEnvGroupId = null;
+  currentDropPosition = null;
+
+  document.querySelectorAll('.group-content').forEach(c => c.classList.remove('drag-active'));
+
+  const envList = document.getElementById('envList');
+  if (envList) envList.classList.remove('drag-active');
+  
+  console.log('[DRAG] handleEnvDragEnd completed');
+}
+
+function handleEnvDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  
+  console.log('[DRAG] handleEnvDragOver called');
+  console.log('[DRAG]   e.target:', e.target.tagName, e.target.className);
+
+  if (!placeholderElement) {
+    console.log('[DRAG]   placeholderElement is null, skipping');
+    return;
+  }
+
+  const targetWrapper = e.target.closest('.env-wrapper');
+  const groupHeader = e.target.closest('.group-header');
+  const groupContent = e.target.closest('.group-content');
+
+  console.log('[DRAG]   targetWrapper:', targetWrapper?.dataset.id);
+  console.log('[DRAG]   groupHeader:', groupHeader?.dataset.groupId);
+  console.log('[DRAG]   groupContent:', groupContent?.dataset.groupContent);
+
+  if (e.target === placeholderElement || placeholderElement.contains(e.target)) {
+    console.log('[DRAG]   over placeholder, skipping');
+    return;
+  }
+
+  let newPosition = null;
+
+  if (targetWrapper && targetWrapper.dataset.id !== draggedEnvId) {
+    const rect = targetWrapper.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const side = e.clientY < midY ? 'before' : 'after';
+    newPosition = { type: side, refId: targetWrapper.dataset.id };
+    console.log('[DRAG]   newPosition:', JSON.stringify(newPosition));
+  } else if (groupHeader) {
+    newPosition = { type: 'append', refId: 'group_' + groupHeader.dataset.groupId };
+    console.log('[DRAG]   newPosition (groupHeader):', JSON.stringify(newPosition));
+  } else if (groupContent) {
+    newPosition = { type: 'append', refId: 'group_' + groupContent.dataset.groupContent };
+    console.log('[DRAG]   newPosition (groupContent):', JSON.stringify(newPosition));
+  } else {
+    console.log('[DRAG]   no valid target found');
+  }
+
+  if (positionsEqual(currentDropPosition, newPosition)) {
+    console.log('[DRAG]   position unchanged, skipping');
+    return;
+  }
+  currentDropPosition = newPosition;
+
+  if (placeholderElement.parentNode) {
+    placeholderElement.parentNode.removeChild(placeholderElement);
+  }
+
+  if (targetWrapper && targetWrapper.dataset.id !== draggedEnvId) {
+    const parentNode = targetWrapper.parentNode;
+    if (!parentNode) {
+      console.log('[DRAG]   ERROR: parentNode is null');
+      return;
+    }
+
+    const rect = targetWrapper.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+
+    if (e.clientY < midY) {
+      parentNode.insertBefore(placeholderElement, targetWrapper);
+      console.log('[DRAG]   inserted before:', targetWrapper.dataset.id);
+    } else {
+      parentNode.insertBefore(placeholderElement, targetWrapper.nextSibling);
+      console.log('[DRAG]   inserted after:', targetWrapper.dataset.id);
+    }
+  } else if (groupHeader) {
+    const groupId = groupHeader.dataset.groupId;
+    const content = document.querySelector(`.group-content[data-group-content="${groupId}"]`);
+    if (content) {
+      content.appendChild(placeholderElement);
+      console.log('[DRAG]   appended to group:', groupId);
+    } else {
+      console.log('[DRAG]   ERROR: group-content not found for:', groupId);
+    }
+  } else if (groupContent) {
+    groupContent.appendChild(placeholderElement);
+    console.log('[DRAG]   appended to group-content:', groupContent.dataset.groupContent);
+  }
+}
+
+function positionsEqual(a, b) {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return a.type === b.type && a.refId === b.refId;
+}
+
+function handleEnvDrop(e) {
+  e.preventDefault();
+  console.log('[DRAG] handleEnvDrop called');
+  console.log('[DRAG]   draggedEnvId:', draggedEnvId);
+
+  if (!draggedEnvId) {
+    console.log('[DRAG]   ERROR: draggedEnvId is null');
+    return;
+  }
+
+  const targetWrapper = e.target.closest('.env-wrapper');
+  const groupHeader = e.target.closest('.group-header');
+  const groupContent = e.target.closest('.group-content');
+
+  console.log('[DRAG]   targetWrapper:', targetWrapper?.dataset.id);
+  console.log('[DRAG]   groupHeader:', groupHeader?.dataset.groupId);
+  console.log('[DRAG]   groupContent:', groupContent?.dataset.groupContent);
+
+  let targetGroupId = null;
+
+  // 确定目标分组 ID
+  if (groupContent) {
+    targetGroupId = groupContent.dataset.groupContent || null;
+    console.log('[DRAG]   targetGroupId from groupContent:', targetGroupId);
+  } else if (groupHeader) {
+    targetGroupId = groupHeader.dataset.groupId || null;
+    console.log('[DRAG]   targetGroupId from groupHeader:', targetGroupId);
+  } else if (targetWrapper) {
+    // 从目标环境卡片获取分组 ID
+    const parentContent = targetWrapper.closest('.group-content');
+    targetGroupId = parentContent?.dataset.groupContent || null;
+    console.log('[DRAG]   targetGroupId from targetWrapper:', targetGroupId);
+  }
+
+  // 更新环境的 groupId
+  const envIndex = environments.findIndex(env => env.id === draggedEnvId);
+  console.log('[DRAG]   envIndex:', envIndex);
+  if (envIndex !== -1) {
+    environments[envIndex].groupId = targetGroupId;
+    console.log('[DRAG]   updated groupId to:', targetGroupId);
+  }
+
+  // 重新排序环境数组
+  reorderAllEnvironments();
+
+  saveEnvironments();
+  renderGroupedEnvList();
+  
+  console.log('[DRAG] handleEnvDrop completed');
+}
+
+function reorderAllEnvironments() {
+  // 遍历所有分组内容区域，按 DOM 顺序重排环境
+  const allGroupContents = document.querySelectorAll('.group-content');
+  const reorderedEnvs = [];
+
+  allGroupContents.forEach(content => {
+    const envWrappers = content.querySelectorAll('.env-wrapper');
+    envWrappers.forEach(wrapper => {
+      const envId = wrapper.dataset.id;
+      const env = environments.find(e => e.id === envId);
+      if (env) {
+        reorderedEnvs.push(env);
+      }
+    });
+  });
+
+  if (reorderedEnvs.length === environments.length) {
+    environments = reorderedEnvs;
+  }
+}
+
+function handleGroupDragStart(e) {
+  if (e.target.closest('.env-wrapper')) {
+    console.log('[DRAG] handleGroupDragStart skipped - inside env-wrapper');
+    return;
+  }
+
+  e.stopPropagation();
+  console.log('[DRAG] handleGroupDragStart called');
+  console.log('[DRAG]   e.target:', e.target.tagName, e.target.className);
+  console.log('[DRAG]   e.currentTarget:', e.currentTarget.tagName, e.currentTarget.className);
+
+  const handle = e.currentTarget;
+  draggedGroupId = handle.dataset.groupId;
+  console.log('[DRAG]   draggedGroupId:', draggedGroupId);
+  if (!draggedGroupId) {
+    console.log('[DRAG]   ERROR: draggedGroupId is null');
+    return;
+  }
+
+  const section = handle.closest('.group-section');
+  console.log('[DRAG]   section found:', !!section, 'section.dataset.groupId:', section?.dataset.groupId);
+  if (!section) {
+    console.log('[DRAG]   ERROR: section not found!');
+    return;
+  }
+
+  section.classList.add('dragging');
+  handle.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', 'group:' + draggedGroupId);
+
+  expandedGroups = [];
+  document.querySelectorAll('.group-section').forEach(s => {
+    if (!s.classList.contains('collapsed')) {
+      expandedGroups.push(s.dataset.groupId);
+    }
+    s.classList.add('collapsed');
+  });
+
+  groupPlaceholderElement = document.createElement('div');
+  groupPlaceholderElement.className = 'group-drag-placeholder';
+
+  const envList = document.getElementById('envList');
+  if (envList) envList.classList.add('drag-active');
+  
+  console.log('[DRAG] handleGroupDragStart completed successfully');
+}
+
+function handleGroupDragEnd(e) {
+  console.log('[DRAG] handleGroupDragEnd called');
+
+  const handle = e.currentTarget;
+  handle.classList.remove('dragging');
+
+  const section = handle.closest('.group-section');
+  if (section) {
+    section.classList.remove('dragging');
+  }
+  draggedGroupId = null;
+
+  if (groupPlaceholderElement && groupPlaceholderElement.parentNode) {
+    groupPlaceholderElement.parentNode.removeChild(groupPlaceholderElement);
+  }
+  groupPlaceholderElement = null;
+
+  document.querySelectorAll('.group-section').forEach(s => {
+    if (expandedGroups.includes(s.dataset.groupId)) {
+      s.classList.remove('collapsed');
+    }
+  });
+  expandedGroups = [];
+
+  const envList = document.getElementById('envList');
+  if (envList) envList.classList.remove('drag-active');
+  
+  console.log('[DRAG] handleGroupDragEnd completed');
+}
+
+function handleGroupDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  
+  console.log('[DRAG] handleGroupDragOver called');
+  console.log('[DRAG]   e.target:', e.target.tagName, e.target.className);
+
+  if (!draggedGroupId) {
+    console.log('[DRAG]   draggedGroupId is null, skipping');
+    return;
+  }
+  console.log('[DRAG]   draggedGroupId:', draggedGroupId);
+
+  if (e.target.closest('.env-wrapper')) {
+    console.log('[DRAG]   over env-wrapper, skipping');
+    return;
+  }
+
+  const targetSection = e.target.closest('.group-section');
+  console.log('[DRAG]   targetSection:', targetSection?.dataset.groupId);
+  if (!targetSection || !targetSection.dataset.groupId || targetSection.dataset.groupId === draggedGroupId) {
+    console.log('[DRAG]   invalid targetSection');
+    return;
+  }
+
+  document.querySelectorAll('.group-header').forEach(h => h.classList.remove('drag-over'));
+
+  if (groupPlaceholderElement && groupPlaceholderElement.parentNode) {
+    groupPlaceholderElement.parentNode.removeChild(groupPlaceholderElement);
+  }
+
+  const envList = document.getElementById('envList');
+  if (envList) {
+    const rect = targetSection.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+
+    if (e.clientY < midY) {
+      envList.insertBefore(groupPlaceholderElement, targetSection);
+    } else {
+      envList.insertBefore(groupPlaceholderElement, targetSection.nextSibling);
+    }
+  }
+
+  const targetHeader = targetSection.querySelector('.group-header');
+  if (targetHeader) {
+    targetHeader.classList.add('drag-over');
+  }
+}
+
+function handleGroupDrop(e) {
+  e.preventDefault();
+  console.log('[DRAG] handleGroupDrop called');
+  console.log('[DRAG]   draggedGroupId:', draggedGroupId);
+
+  if (!draggedGroupId) {
+    console.log('[DRAG]   ERROR: draggedGroupId is null');
+    return;
+  }
+
+  const targetSection = e.target.closest('.group-section');
+  console.log('[DRAG]   targetSection:', targetSection?.dataset.groupId);
+  if (!targetSection || !targetSection.dataset.groupId || targetSection.dataset.groupId === draggedGroupId) {
+    console.log('[DRAG]   invalid targetSection');
+    return;
+  }
+
+  const targetGroupId = targetSection.dataset.groupId;
+  console.log('[DRAG]   targetGroupId:', targetGroupId);
+
+  const draggedGroup = groups.find(g => g.id === draggedGroupId);
+  const targetGroup = groups.find(g => g.id === targetGroupId);
+
+  console.log('[DRAG]   draggedGroup:', draggedGroup?.name);
+  console.log('[DRAG]   targetGroup:', targetGroup?.name);
+
+  if (!draggedGroup || !targetGroup) {
+    console.log('[DRAG]   ERROR: draggedGroup or targetGroup not found');
+    return;
+  }
+
+  const draggedOrder = draggedGroup.order;
+  const targetOrder = targetGroup.order;
+
+  if (draggedOrder < targetOrder) {
+    groups.forEach(g => {
+      if (g.order > draggedOrder && g.order <= targetOrder) {
+        g.order--;
+      }
+    });
+    draggedGroup.order = targetOrder;
+  } else {
+    groups.forEach(g => {
+      if (g.order >= targetOrder && g.order < draggedOrder) {
+        g.order++;
+      }
+    });
+    draggedGroup.order = targetOrder;
+  }
+
+  saveGroups();
+  renderGroupedEnvList();
 }

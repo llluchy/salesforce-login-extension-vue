@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Salesforce Quick Login",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "One-click login to Salesforce orgs with built-in MFA/TOTP support and QR code scanning.",
   "permissions": [
     "storage",

@@ -90,6 +90,23 @@ body {
   gap: 4px;
 }
 
+#addGroupBtn {
+  background: #28a745;
+  color: white;
+  border-radius: 6px;
+}
+
+#addGroupBtn:hover {
+  background: #218838;
+  color: white;
+}
+
+#addGroupBtn svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
 .btn-icon {
   width: 32px;
   height: 32px;
@@ -240,6 +257,19 @@ body {
   gap: 8px;
 }
 
+.env-list *[draggable="true"] {
+  cursor: grab;
+}
+
+.env-list *[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.env-list.drag-active,
+.env-list.drag-active * {
+  cursor: move !important;
+}
+
 .env-wrapper {
   display: flex;
   flex-direction: column;
@@ -374,6 +404,25 @@ body {
   width: 16px;
   height: 16px;
   fill: currentColor;
+}
+
+.env-drag-handle {
+  cursor: grab;
+  color: #999;
+}
+
+.env-drag-handle:hover {
+  background: #f5f5f5;
+  color: #666;
+}
+
+.env-drag-handle:active {
+  cursor: grabbing;
+}
+
+.env-drag-handle.dragging {
+  color: #00A1E0;
+  background: #e6f7ff;
 }
 
 .empty-state {
@@ -573,6 +622,225 @@ body {
 .btn-sm {
   padding: 4px 10px;
   font-size: 12px;
+}
+
+.group-select-wrapper {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.group-select-wrapper select {
+  flex: 1;
+}
+
+.group-select-wrapper .btn-icon.btn-sm {
+  width: 28px;
+  height: 28px;
+  background: #f5f5f5;
+  color: #666;
+}
+
+.group-select-wrapper .btn-icon.btn-sm:hover {
+  background: #eee;
+  color: #00A1E0;
+}
+
+.group-select-wrapper .btn-icon.btn-sm svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 分组布局 */
+.group-section {
+  margin-bottom: 12px;
+}
+
+.group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #e8eef5;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+  border: 1px solid #d0d7e2;
+}
+
+.group-header:hover {
+  background: #dce8f5;
+}
+
+.group-header.dragging {
+  background: #c5d9f0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 161, 224, 0.3);
+  transform: scale(1.01);
+  border-color: #00A1E0;
+}
+
+.group-section.dragging {
+  opacity: 0.95;
+}
+
+.group-section.dragging .group-header {
+  background: #b8d4ed;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25), 0 3px 10px rgba(0, 161, 224, 0.4);
+  transform: scale(1.02);
+  border-color: #00A1E0;
+}
+
+.group-title-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.group-collapse-icon {
+  width: 16px;
+  height: 16px;
+  fill: #666;
+  transition: transform 0.2s ease;
+}
+
+.group-section.collapsed .group-collapse-icon {
+  transform: rotate(-90deg);
+}
+
+.group-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.group-count {
+  font-size: 12px;
+  color: #999;
+}
+
+.group-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.group-header:hover .group-actions {
+  opacity: 1;
+}
+
+.group-action-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #888;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.group-action-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #00A1E0;
+}
+
+.group-action-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.group-drag-handle {
+  cursor: grab;
+  color: #999;
+}
+
+.group-drag-handle:hover {
+  background: #dce8f5;
+  color: #666;
+}
+
+.group-drag-handle:active {
+  cursor: grabbing;
+}
+
+.group-drag-handle.dragging {
+  color: #00A1E0;
+  background: #d0e8f7;
+}
+
+.group-content {
+  padding: 8px 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  transition: max-height 0.3s ease, padding 0.3s ease;
+  max-height: 500px;
+}
+
+.group-section.collapsed .group-content {
+  max-height: 0;
+  padding: 0;
+}
+
+.group-section.dragging .group-content {
+  max-height: 0;
+  padding: 0;
+}
+
+.group-section.dragging .group-header {
+  border-radius: 6px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.15);
+}
+
+.empty-group-hint {
+  padding: 12px;
+  text-align: center;
+  color: #bbb;
+  font-size: 12px;
+}
+
+.group-content.drag-active .empty-group-hint {
+  display: none !important;
+}
+
+.group-drag-placeholder {
+  height: 40px;
+  margin-bottom: 12px;
+  border: 2px dashed #00A1E0;
+  border-radius: 6px;
+  background: rgba(0, 161, 224, 0.05);
+  transition: all 0.2s ease;
+}
+
+/* 拖拽占位 */
+.drag-placeholder {
+  background: #e6f7ff;
+  border: 2px dashed #00A1E0;
+  border-radius: 8px;
+  min-height: 48px;
+  margin: 8px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #00A1E0;
+  font-size: 13px;
+}
+
+.env-wrapper.dragging {
+  opacity: 0.5;
+}
+
+.env-item.dragging {
+  box-shadow: 0 3px 12px rgba(0, 161, 224, 0.3);
 }
 
 /* TOTP Note */

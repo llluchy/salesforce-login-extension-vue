@@ -1,7 +1,7 @@
 #!/bin/bash
 
 EXT_NAME="SalesforceQuickLogin"
-EXT_VERSION="1.0.0"
+EXT_VERSION="1.1.0"
 OUTPUT_DIR="../dist"
 
 mkdir -p "$OUTPUT_DIR"
