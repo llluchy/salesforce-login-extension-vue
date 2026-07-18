@@ -1,0 +1,20 @@
+{
+  "name": "salesforce-login-extension",
+  "version": "1.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && npm run copy-static",
+    "copy-static": "cp -r public/* dist/ && cp dist/index.html dist/sidepanel.html",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@sailingcoder/drag-kit": "git+https://github.com/SailingCoder/drag-kit.git",
+    "sortablejs": "^1.15.7",
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.4",
+    "vite": "^5.4.21"
+  }
+}

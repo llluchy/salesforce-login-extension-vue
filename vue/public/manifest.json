@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Salesforce Quick Login",
-  "version": "1.1.0",
+  "version": "1.6.3",
   "description": "One-click login to Salesforce orgs with built-in MFA/TOTP support and QR code scanning.",
   "permissions": [
     "storage",
@@ -22,10 +22,24 @@
       "matches": [
         "https://*.salesforce.com/*",
         "https://*.force.com/*",
-        "https://*.my.site.com/*"
+        "https://*.my.salesforce.com/*",
+        "https://*.my.site.com/*",
+        "https://*.cloudforce.com/*"
       ],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["page-world.js", "lib/cbor.js", "lib/webauthn-authenticator.js"],
+      "matches": [
+        "https://*.salesforce.com/*",
+        "https://*.force.com/*",
+        "https://*.my.salesforce.com/*",
+        "https://*.cloudforce.com/*"
+      ]
     }
   ],
   "side_panel": {

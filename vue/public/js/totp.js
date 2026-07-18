@@ -96,6 +96,10 @@ const TOTP = {
   }
 };
 
+// 暴露到全局，供扩展使用
+window.generateTOTP = (secret) => TOTP.generate(secret);
+window.getRemainingSeconds = () => TOTP.getRemainingSeconds();
+
 // 兼容 CommonJS 和浏览器环境
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = TOTP;
