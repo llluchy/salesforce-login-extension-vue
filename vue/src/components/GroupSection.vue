@@ -153,8 +153,8 @@ watch(() => props.group.collapsed, (collapsed) => {
 
 .group-content {
   padding: 6px;
-  background-color: #f5f5f5;
-  border-top: 1px solid #e8e8e8;
+  background-color: #f5f9ff;
+  border-top: 1px solid #bbdefb;
   min-height: 36px;
 }
 

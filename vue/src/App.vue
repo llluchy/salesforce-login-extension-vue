@@ -1,24 +1,13 @@
 <template>
-  <div class="app-container">
-    <VerificationHelper
-      :environments="environments"
-      :auth-request="passkeyAuthRequest"
-      @select-env="handleSelectEnvForPasskey"
-      @create-env="handleCreateEnvForPasskey"
-      @dismiss="handleDismissPasskey"
-    />
-
+  <AuthScreen v-if="!isAuthed" @authed="onAuthed" />
+  <div v-else class="app-container">
     <Toolbar
-      ref="toolbarRef"
       :env-count="environments.length"
       :max-environments="MAX_ENVIRONMENTS"
+      :account-email="currentUser?.email || ''"
       @add-env="openEditModal"
       @add-group="openGroupModal"
-      @test-passkey="testPasskeyFlow"
-      @export-backup="handleExportBackup"
-      @import-backup="handleImportBackupClick"
-      @import-file="handleImportBackup"
-      @manual-bind="openManualBind()"
+      @account="accountDialogVisible = true"
     />
     
     <div class="env-list" ref="envListRef">
@@ -65,12 +54,12 @@
       @confirm="handleConfirmDelete"
     />
 
-    <ManualBindModal
-      :visible="manualBindVisible"
-      :env="manualBindEnv"
-      :environments="environments"
-      @close="closeManualBind"
-      @bound="handleManualBound"
+    
+
+    <AccountDialog
+      :visible="accountDialogVisible"
+      @close="accountDialogVisible = false"
+      @signed-out="onSignedOut"
     />
 
     <Toast
@@ -83,26 +72,30 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import Sortable from 'sortablejs'
 import { MAX_ENVIRONMENTS } from './utils/constants'
+import { generateUuid } from './utils/crypto'
 import { useStorage } from './composables/useStorage'
+import { useAuth } from './composables/useAuth'
+import { migrateLocalToSupabase } from './utils/migration'
 import { useLogin } from './composables/useLogin'
+import { initPasskeyBridge, destroyPasskeyBridge } from './composables/usePasskeyBridge'
 import { useTotp } from './composables/useTotp'
-import { usePasskey } from './composables/usePasskey'
+import syncLog from './utils/syncLogger'
 import Toolbar from './components/Toolbar.vue'
 import GroupSection from './components/GroupSection.vue'
 import EditModal from './components/EditModal.vue'
 import GroupModal from './components/GroupModal.vue'
 import DeleteModal from './components/DeleteModal.vue'
 import Toast from './components/Toast.vue'
-import VerificationHelper from './components/VerificationHelper.vue'
-import ManualBindModal from './components/ManualBindModal.vue'
+import AuthScreen from './components/AuthScreen.vue'
+import AccountDialog from './components/AccountDialog.vue'
 
-const { loadEnvironments, saveEnvironments, loadGroups, saveGroups } = useStorage()
+const { loadEnvironments, saveEnvironments, deleteEnvironment, loadGroups, saveGroups, deleteGroup } = useStorage()
+const { isAuthed, getCryptoKeyRaw, currentUser, getSession } = useAuth()
 const { login } = useLogin()
 const { generateCode, fillTotpCode } = useTotp()
-const { authRequest: passkeyAuthRequest, dismissAuthRequest, notifyPasskeySelected, triggerMockAuthRequest } = usePasskey()
 
 const environments = ref([])
 const groups = ref([])
@@ -114,6 +107,7 @@ const groupModalVisible = ref(false)
 const deleteModalVisible = ref(false)
 const toastVisible = ref(false)
 const manualBindVisible = ref(false)
+const accountDialogVisible = ref(false)
 
 const editingEnv = ref(null)
 const editingGroup = ref(null)
@@ -208,39 +202,30 @@ const closeDeleteModal = () => {
 }
 
 const handleSaveEnv = async (env) => {
+  syncLog.group('App.handleSaveEnv 保存环境')
+  syncLog.info('输入', syncLog.envSummary(env))
   if (env.id) {
     const index = environments.value.findIndex(e => e.id === env.id)
     if (index !== -1) {
       environments.value[index] = env
     }
   } else {
-    env.id = Date.now().toString()
+    env.id = generateUuid()
     environments.value.push(env)
   }
-  
-  if (pendingPasskeyAuthRequest.value) {
-    console.log('[App] 在创建环境时存在 pendingPasskeyAuthRequest', pendingPasskeyAuthRequest.value)
-    await bindPasskeyToEnv(env, pendingPasskeyAuthRequest.value)
-    
-    if (pendingPasskeyAuthRequest.value?.tabId) {
-      console.log('[App] 发送 selectPasskeyForAuth（新建环境）, tabId:', pendingPasskeyAuthRequest.value.tabId, 'requestId:', pendingPasskeyAuthRequest.value.requestId)
-      await notifyPasskeySelected(pendingPasskeyAuthRequest.value.tabId, {
-        type: 'system',
-        credentialId: 'system',
-        envId: env.id,
-        rpId: pendingPasskeyAuthRequest.value.rpId
-      }, pendingPasskeyAuthRequest.value.requestId)
-    }
-    
-    pendingPasskeyAuthRequest.value = null
-    await dismissAuthRequest()
-    showToast(`环境 ${env.alias} 已创建并绑定 Passkey`, 'success')
-  } else {
+
+  const result = await saveEnvironments(environments.value)
+  syncLog.info('saveEnvironments 返回', {
+    success: result?.success,
+    error: result?.error
+  })
+  if (result?.success) {
     showToast(env.id ? '环境已更新' : '环境已创建')
+  } else {
+    showToast('保存失败：' + (result?.error || ''), 'error')
   }
-  
-  await saveEnvironments(environments.value)
   closeEditModal()
+  syncLog.groupEnd()
 }
 
 const handleSaveGroup = async (group) => {
@@ -250,20 +235,36 @@ const handleSaveGroup = async (group) => {
       groups.value[index] = group
     }
   } else {
-    group.id = Date.now().toString()
+    group.id = generateUuid()
     groups.value.push(group)
   }
-  await saveGroups(groups.value)
+  const result = await saveGroups(groups.value)
   closeGroupModal()
-  showToast(group.id ? '分组已更新' : '分组已创建')
+  if (result?.success) {
+    showToast(group.id ? '分组已更新' : '分组已创建')
+  } else {
+    showToast('保存失败：' + (result?.error || ''), 'error')
+  }
 }
 
 const handleConfirmDelete = async () => {
   if (deleteType.value === 'env') {
-    environments.value = environments.value.filter(e => e.id !== deleteId.value)
-    await saveEnvironments(environments.value)
-    showToast('环境已删除')
+    // 伪删除：仅标记数据库中的 is_deleted=true
+    const result = await deleteEnvironment(deleteId.value)
+    if (result?.success) {
+      // 同时从本地视图移除
+      environments.value = environments.value.filter(e => e.id !== deleteId.value)
+      showToast('环境已删除')
+    } else {
+      showToast('删除失败：' + (result?.error || ''), 'error')
+    }
   } else {
+    const delResult = await deleteGroup(deleteId.value)
+    if (!delResult?.success) {
+      showToast('删除分组失败：' + (delResult?.error || ''), 'error')
+      closeDeleteModal()
+      return
+    }
     environments.value.forEach(e => {
       if (e.groupId === deleteId.value) {
         e.groupId = 'ungrouped'
@@ -271,21 +272,27 @@ const handleConfirmDelete = async () => {
     })
     groups.value = groups.value.filter(g => g.id !== deleteId.value)
     await saveEnvironments(environments.value)
-    await saveGroups(groups.value)
     showToast('分组已删除')
   }
   closeDeleteModal()
 }
 
-const handleCloneEnv = (env) => {
+const handleCloneEnv = async (env) => {
+  const now = Date.now()
   const cloned = {
     ...env,
-    id: Date.now().toString(),
-    alias: `${env.alias} (克隆)`
+    id: generateUuid(),
+    alias: `${env.alias} (克隆)`,
+    createdAt: now,
+    updatedAt: now
   }
   environments.value.push(cloned)
-  saveEnvironments(environments.value)
-  showToast('环境已克隆')
+  const result = await saveEnvironments(environments.value)
+  if (result?.success) {
+    showToast('环境已克隆')
+  } else {
+    showToast('克隆失败：' + (result?.error || ''), 'error')
+  }
 }
 
 const handleLogin = async (env) => {
@@ -297,107 +304,25 @@ const handleLogin = async (env) => {
   }
 }
 
-const pendingPasskeyAuthRequest = ref(null)
-
-const handleSelectEnvForPasskey = async ({ env, type, authRequest }) => {
-  console.log('[App] handleSelectEnvForPasskey 被调用', { type, envId: env?.id, requestId: authRequest?.requestId, tabId: authRequest?.tabId })
-  try {
-    if (type === 'create') {
-      await bindPasskeyToEnv(env, authRequest)
-      showToast(`Passkey 已绑定到 ${env.alias}`, 'success')
-
-      if (authRequest?.tabId) {
-        console.log('[App] 发送 selectPasskeyForAuth 到 background, tabId:', authRequest.tabId, 'requestId:', authRequest.requestId)
-        await notifyPasskeySelected(authRequest.tabId, {
-          type: 'system',
-          credentialId: 'system',
-          envId: env.id,
-          rpId: authRequest.rpId
-        }, authRequest.requestId)
-      } else {
-        console.warn('[App] authRequest.tabId 为空，无法通知 page-world')
-      }
-    } else {
-      const passkey = env.passkeys?.find(pk => pk.rpId === authRequest.rpId)
-      if (passkey && authRequest?.tabId) {
-        console.log('[App] 发送 selectPasskeyForAuth 到 background, tabId:', authRequest.tabId, 'requestId:', authRequest.requestId)
-        await notifyPasskeySelected(authRequest.tabId, passkey, authRequest.requestId)
-        showToast('正在使用 Passkey 验证...', 'info')
-      }
-    }
-    await dismissAuthRequest()
-  } catch (error) {
-    console.error('Passkey selection error:', error)
-    showToast('Passkey 验证失败', 'error')
-  }
-}
-
-const handleCreateEnvForPasskey = async ({ authRequest }) => {
-  console.log('[App] handleCreateEnvForPasskey 被调用', authRequest)
-  pendingPasskeyAuthRequest.value = authRequest
-  editingEnv.value = {
-    alias: '',
-    type: 'sandbox',
-    username: '',
-    password: '',
-    passkeys: []
-  }
-  editModalVisible.value = true
-}
-
-const bindPasskeyToEnv = async (env, authRequest) => {
-  if (!env.passkeys) {
-    env.passkeys = []
-  }
-  
-  const existingPasskey = env.passkeys.find(pk => pk.rpId === authRequest.rpId)
-  if (!existingPasskey) {
-    env.passkeys.push({
-      id: 'pk_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-      rpId: authRequest.rpId,
-      challenge: authRequest.challenge,
-      createdAt: Date.now()
-    })
-    await saveEnvironments(environments.value)
-  }
-}
-
-const handleDismissPasskey = async () => {
-  await dismissAuthRequest()
-}
-
-const testPasskeyFlow = async () => {
-  if (typeof chrome !== 'undefined' && chrome.storage) {
-    await chrome.storage.local.set({
-      __sf_passkey_auth_request: {
-        rpId: 'salesforce.com',
-        challenge: 'test-challenge-data',
-        allowCredentials: [],
-        type: 'get',
-        timestamp: Date.now()
-      }
-    })
-    showToast('已模拟 Passkey 登录请求，验证助手已弹出', 'info')
-  } else {
-    triggerMockAuthRequest('salesforce.com')
-    showToast('已模拟 Passkey 请求，验证助手已弹出', 'info')
-  }
-}
-
 // ========== Passkey 备份与恢复 ==========
 
 const handleExportBackup = async () => {
   try {
-    const response = await chrome.runtime.sendMessage({ action: 'exportPasskeyBackup' })
-    if (!response?.success) {
-      showToast(response?.error || '导出失败', 'error')
+    const [creds, envs] = await Promise.all([
+      loadPasskeyCredentials(),
+      loadEnvironments()
+    ])
+
+    if (creds.length === 0 && envs.length === 0) {
+      showToast('没有可备份的数据', 'error')
       return
     }
 
-    const backup = response.backup
-    if (backup.credentials.length === 0 && backup.environments.length === 0) {
-      showToast('没有可备份的数据', 'error')
-      return
+    const backup = {
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      credentials: creds,
+      environments: envs
     }
 
     const json = JSON.stringify(backup, null, 2)
@@ -414,7 +339,7 @@ const handleExportBackup = async () => {
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
 
-    showToast(`已导出 ${backup.credentials.length} 个凭证、${backup.environments.length} 个环境`, 'success')
+    showToast(`已导出 ${creds.length} 个凭证、${envs.length} 个环境`, 'success')
   } catch (error) {
     console.error('Export backup error:', error)
     showToast(error.message || '导出失败', 'error')
@@ -442,22 +367,29 @@ const handleImportBackup = async (event) => {
       return
     }
 
-    const response = await chrome.runtime.sendMessage({
-      action: 'importPasskeyBackup',
-      backup: backup
-    })
-
-    if (!response?.success) {
-      showToast(response?.error || '导入失败', 'error')
-      return
+    let credCount = 0
+    for (const cred of backup.credentials) {
+      const r = await savePasskeyCredential(cred)
+      if (r?.success) credCount++
     }
 
-    // 重新加载环境列表
+    let envCount = 0
+    if (Array.isArray(backup.environments) && backup.environments.length > 0) {
+      const existing = await loadEnvironments()
+      const merged = [...existing]
+      for (const env of backup.environments) {
+        if (!merged.find(e => e.id === env.id)) {
+          merged.push(env)
+          envCount++
+        }
+      }
+      await saveEnvironments(merged)
+    }
+
     environments.value = await loadEnvironments()
     groups.value = await loadGroups()
 
-    const info = response.imported
-    showToast(`导入完成：新增 ${info.credentials} 个凭证、${info.environments} 个环境`, 'success')
+    showToast(`导入完成：新增 ${credCount} 个凭证、${envCount} 个环境`, 'success')
   } catch (error) {
     console.error('Import backup error:', error)
     showToast(error.message || '导入失败：文件格式错误', 'error')
@@ -517,7 +449,7 @@ const handleShowTotp = async (env) => {
 
 const handleAddGroupFromModal = async (groupName) => {
   const newGroup = {
-    id: Date.now().toString(),
+    id: generateUuid(),
     name: groupName,
     isVirtual: false,
     collapsed: false
@@ -647,15 +579,159 @@ const closeToast = () => {
   toastVisible.value = false
 }
 
+// ========== 登录态与数据加载 ==========
+
+const loadData = async () => {
+  syncLog.group('App.loadData 加载数据')
+  try {
+    console.log('[App] loadData 开始，当前 isAuthed:', isAuthed.value)
+    console.log('[App] loadData 当前 currentUser:', currentUser.value)
+    
+    environments.value = await loadEnvironments()
+    console.log('[App] loadEnvironments 返回', environments.value.length, '个环境')
+    
+    groups.value = await loadGroups()
+    console.log('[App] loadGroups 返回', groups.value.length, '个分组')
+    
+    syncLog.info('加载完成', {
+      envs: environments.value.length,
+      groups: groups.value.length
+    })
+    nextTick(() => {
+      initGroupSortable()
+    })
+  } catch (e) {
+    syncLog.error('加载数据失败', e)
+    showToast('加载数据失败：' + (e.message || ''), 'error')
+  } finally {
+    syncLog.groupEnd()
+  }
+}
+
+// 防止 onAuthed 被重复触发（emit + watch 可能同时触发）
+let _onAuthedRunning = false
+
+const onAuthed = async () => {
+  if (_onAuthedRunning) {
+    console.log('[App] onAuthed 正在执行中，跳过重复触发')
+    return
+  }
+  _onAuthedRunning = true
+  syncLog.info('App.onAuthed 登录成功，开始加载数据')
+
+  // 首次登录时尝试迁移本地旧数据到 Supabase（云端有数据则自动跳过）
+  try {
+    console.log('[App] onAuthed 开始迁移检查')
+    const result = await migrateLocalToSupabase()
+    console.log('[App] onAuthed 迁移结果', result)
+    if (result?.success) {
+      const m = result.migrated
+      showToast(`已迁移 ${m.environments} 个环境、${m.groups} 个分组、${m.passkeys} 个凭证到云端`, 'success')
+    }
+  } catch (e) {
+    syncLog.error('迁移本地数据失败', e)
+    console.error('[App] onAuthed 迁移异常', e)
+  }
+
+  console.log('[App] onAuthed 初始化 Passkey Bridge')
+  try {
+    initPasskeyBridge()
+    console.log('[App] onAuthed Passkey Bridge 初始化完成')
+  } catch (e) {
+    syncLog.error('初始化 Passkey Bridge 失败', e)
+    console.error('[App] onAuthed Passkey Bridge 异常', e)
+  }
+
+  console.log('[App] onAuthed 调用 loadData')
+  try {
+    await loadData()
+    console.log('[App] onAuthed loadData 完成')
+  } catch (e) {
+    syncLog.error('加载数据失败', e)
+    console.error('[App] onAuthed loadData 异常', e)
+  } finally {
+    _onAuthedRunning = false
+  }
+}
+
+// 监听 isAuthed 变化，当登录状态变为 true 时自动触发数据加载
+// 解决 AuthScreen 在 signIn 后立即销毁导致 emit('authed') 失效的问题
+let _authTriggered = false
+watch(isAuthed, (newVal, oldVal) => {
+  if (newVal === true && oldVal === false && !_authTriggered) {
+    _authTriggered = true
+    console.log('[App] watch isAuthed 触发 onAuthed')
+    onAuthed().catch(err => {
+      console.error('[App] watch onAuthed 异常', err)
+    }).finally(() => {
+      _authTriggered = false
+    })
+  }
+})
+
+const onSignedOut = () => {
+  syncLog.info('App.onSignedOut 退出登录，清空本地视图')
+  destroyPasskeyBridge()
+  accountDialogVisible.value = false
+  environments.value = []
+  groups.value = []
+  if (groupSortable) {
+    groupSortable.destroy()
+    groupSortable = null
+  }
+}
+
 onMounted(async () => {
-  environments.value = await loadEnvironments()
-  groups.value = await loadGroups()
-  nextTick(() => {
-    initGroupSortable()
-  })
+  syncLog.group('App.onMounted 应用启动')
+
+  // 输出当前扩展运行环境概览
+  try {
+    const runtimeInfo = {
+      extensionId: chrome.runtime?.id,
+      manifestVersion: chrome.runtime?.getManifest?.()?.manifest_version,
+      extensionVersion: chrome.runtime?.getManifest?.()?.version,
+      extensionName: chrome.runtime?.getManifest?.()?.name,
+      isDev: !('update_url' in (chrome.runtime?.getManifest?.() || {})),
+      hasStorageLocal: !!(chrome.storage && chrome.storage.local)
+    }
+    runtimeInfo.isFromWebStore = !runtimeInfo.isDev
+    syncLog.info('扩展运行环境', runtimeInfo)
+  } catch (e) {
+    syncLog.warn('获取运行时信息失败', e.message)
+  }
+
+  // 检查 Supabase 登录态
+  // 流程：
+  //   1. getSession 恢复 currentUser（如有持久 session）
+  //   2. 检查今日解锁计数器
+  //   3. 若今日已解锁且 session 有效 → 自动进入主页（但需要密码才能解密数据）
+  //   4. 否则 → AuthScreen 显示要求输入密码
+  try {
+    await getSession()
+    const unlockStatus = await getUnlockStatus()
+    syncLog.info('会话检查完成', {
+      isAuthed: isAuthed.value,
+      hasCryptoKey: !!getCryptoKeyRaw(),
+      hasCurrentUser: !!currentUser.value,
+      unlockStatus
+    })
+
+    // 若 getSession 已恢复 session 且今日已解锁过 → 直接进入主页
+    if (currentUser.value && !unlockStatus.needPassword) {
+      // 但 isAuthed 还是 false（密钥未派生），数据需要密码才能解密
+      // 这种情况显示 AuthScreen 但提示已登录
+      syncLog.info('今日已解锁过密码，等待用户输入密码派生密钥')
+    }
+    // 否则 AuthScreen 自动显示
+  } catch (e) {
+    syncLog.error('会话检查失败', e)
+  }
+
+  syncLog.groupEnd()
 })
 
 onBeforeUnmount(() => {
+  destroyPasskeyBridge()
   if (groupSortable) {
     groupSortable.destroy()
     groupSortable = null
@@ -666,7 +742,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .app-container {
   min-height: 100vh;
-  background-color: #f3f3f3;
+  background-color: #eef5fc;
 }
 
 .env-list {
@@ -675,12 +751,12 @@ onBeforeUnmount(() => {
 
 :global(.group-ghost) {
   opacity: 0.4;
-  background-color: #fff3e0 !important;
-  border: 2px dashed #ff9800 !important;
+  background-color: #e3f2fd !important;
+  border: 2px dashed #1976d2 !important;
 }
 
 :global(.group-chosen) {
-  background-color: #fff8e1;
+  background-color: #bbdefb;
 }
 
 :global(.group-drag) {

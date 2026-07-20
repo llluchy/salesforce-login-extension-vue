@@ -239,33 +239,35 @@ onBeforeUnmount(() => {
   background: #fff;
   border-radius: 6px;
   box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.1),
-    0 2px 8px rgba(0, 0, 0, 0.06);
+    0 1px 3px rgba(25, 118, 210, 0.08),
+    0 2px 8px rgba(25, 118, 210, 0.05);
   transition: box-shadow 0.2s;
   overflow: hidden;
   position: relative;
   z-index: 2;
+  border: 1px solid #e3f2fd;
 }
 
 .env-card-warning {
-  border-left: 4px solid #ff9800;
+  border-left: 4px solid #f57c00;
 }
 
 .env-card-warning .env-card-main {
-  background: linear-gradient(135deg, #fffaf5 0%, #fff8f0 100%);
+  background: linear-gradient(135deg, #fff8e1 0%, #fff3e0 100%);
 }
 
 .env-card:hover {
-  box-shadow: 
-    0 2px 8px rgba(0, 0, 0, 0.15),
-    0 4px 16px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 2px 8px rgba(25, 118, 210, 0.15),
+    0 4px 16px rgba(25, 118, 210, 0.1);
+  border-color: #90caf9;
 }
 
 .env-card-main {
   display: flex;
   align-items: center;
   padding: 8px 10px;
-  background: linear-gradient(135deg, #ffffff 0%, #fafafa 100%);
+  background: linear-gradient(135deg, #ffffff 0%, #f5f9ff 100%);
 }
 
 .env-drag-handle {
@@ -321,12 +323,12 @@ onBeforeUnmount(() => {
 }
 
 .type-sandbox {
-  background-color: #fd7e14;
+  background-color: #1976d2;
   color: white;
 }
 
 .type-custom {
-  background-color: #6c757d;
+  background-color: #5c6bc0;
   color: white;
 }
 
@@ -365,12 +367,12 @@ onBeforeUnmount(() => {
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
-  color: #757575;
+  color: #1976d2;
 }
 
 .action-btn:hover {
-  background-color: #f0f0f0;
-  color: #424242;
+  background-color: #e3f2fd;
+  color: #0d47a1;
 }
 
 .action-delete:hover {
@@ -388,13 +390,13 @@ onBeforeUnmount(() => {
 }
 
 .totp-card-inner {
-  background: linear-gradient(135deg, #fff8e1 0%, #fff3e0 100%);
+  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
   padding: 16px 14px 8px 14px;
   border-radius: 6px;
   position: relative;
   box-shadow:
-    0 4px 12px rgba(255, 152, 0, 0.2),
-    0 8px 24px rgba(255, 152, 0, 0.1);
+    0 4px 12px rgba(25, 118, 210, 0.2),
+    0 8px 24px rgba(25, 118, 210, 0.1);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -407,17 +409,17 @@ onBeforeUnmount(() => {
   top: 0;
   bottom: 0;
   width: 4px;
-  background: linear-gradient(180deg, #ff9800 0%, #ffc107 100%);
+  background: linear-gradient(180deg, #1976d2 0%, #64b5f6 100%);
   border-radius: 6px 0 0 6px;
 }
 
 .totp-code {
   font-size: 18px;
   font-weight: 700;
-  color: #333;
+  color: #0d47a1;
   letter-spacing: 3px;
   font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  text-shadow: 0 1px 2px rgba(25, 118, 210, 0.08);
   white-space: nowrap;
   flex-shrink: 0;
   cursor: pointer;
@@ -426,12 +428,12 @@ onBeforeUnmount(() => {
 }
 
 .totp-code:hover {
-  color: #ff9800;
+  color: #1976d2;
 }
 
 .totp-timer {
   height: 4px;
-  background: #ffe082;
+  background: #bbdefb;
   border-radius: 2px;
   overflow: hidden;
   flex: 1;
@@ -440,10 +442,10 @@ onBeforeUnmount(() => {
 
 .totp-progress {
   height: 100%;
-  background: linear-gradient(90deg, #ff9800 0%, #ffc107 100%);
+  background: linear-gradient(90deg, #1976d2 0%, #64b5f6 100%);
   border-radius: 2px;
   transition: width 1s linear;
-  box-shadow: 0 0 4px rgba(255, 152, 0, 0.4);
+  box-shadow: 0 0 4px rgba(25, 118, 210, 0.4);
 }
 
 .totp-progress.no-transition {
@@ -470,16 +472,16 @@ onBeforeUnmount(() => {
 :global(.env-ghost) {
   opacity: 0.4;
   background-color: #e3f2fd !important;
-  border: 2px dashed #2196f3 !important;
+  border: 2px dashed #1976d2 !important;
 }
 
 :global(.env-chosen) {
-  background-color: #e8f5e9;
+  background-color: #bbdefb;
 }
 
 :global(.env-drag) {
   opacity: 0.85;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 24px rgba(25, 118, 210, 0.25);
   transition: none !important;
 }
 </style>

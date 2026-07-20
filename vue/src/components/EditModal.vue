@@ -59,23 +59,21 @@
             <input type="text" v-model="form.totpSecret" placeholder="输入或从二维码获取" />
           </div>
 
-          <div class="form-group" v-if="form.passkeys && form.passkeys.length">
+          <div class="form-group" v-if="firstPasskey">
             <label>已绑定 Passkey</label>
-            <div class="passkey-list">
-              <div v-for="pk in form.passkeys" :key="pk.id" class="passkey-tag">
-                <svg v-if="pk.type === 'system'" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M8 1a3 3 0 00-3 3v3H4a2 2 0 00-2 2v4a2 2 0 002 2h8a2 2 0 002-2v-4a2 2 0 00-2-2h-1V4a3 3 0 00-3-3z"/>
+            <div class="passkey-tag">
+              <svg v-if="firstPasskey.type === 'system'" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M8 1a3 3 0 00-3 3v3H4a2 2 0 00-2 2v4a2 2 0 002 2h8a2 2 0 002-2v-4a2 2 0 00-2-2h-1V4a3 3 0 00-3-3z"/>
+              </svg>
+              <svg v-else viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="1" y="2" width="14" height="10" rx="1.5"/><path d="M5 14h6M8 12v2"/>
+              </svg>
+              <span class="passkey-tag-label">{{ firstPasskey.label || firstPasskey.rpId }}</span>
+              <button class="passkey-tag-remove" @click="removePasskey(firstPasskey.id)" title="删除">
+                <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M4 4l8 8M12 4l-8 8"/>
                 </svg>
-                <svg v-else viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <rect x="1" y="2" width="14" height="10" rx="1.5"/><path d="M5 14h6M8 12v2"/>
-                </svg>
-                <span class="passkey-tag-label">{{ pk.label }}</span>
-                <button class="passkey-tag-remove" @click="removePasskey(pk.id)" title="删除">
-                  <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M4 4l8 8M12 4l-8 8"/>
-                  </svg>
-                </button>
-              </div>
+              </button>
             </div>
           </div>
           
@@ -102,7 +100,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useTotp } from '../composables/useTotp'
 
 const props = defineProps({
@@ -135,6 +133,17 @@ const form = ref({
   groupId: 'ungrouped',
   totpSecret: '',
   passkeys: []
+})
+
+const validPasskeys = computed(() => {
+  if (!Array.isArray(form.value.passkeys)) return []
+  return form.value.passkeys.filter(pk => {
+    return pk && typeof pk === 'object' && pk.id && pk.rpId && typeof pk.type === 'string'
+  })
+})
+
+const firstPasskey = computed(() => {
+  return validPasskeys.value[0] || null
 })
 
 const handleTypeChange = () => {
@@ -213,7 +222,8 @@ const handleSave = () => {
     alert('请填写必填字段')
     return
   }
-  
+
+  const now = Date.now()
   const envData = {
     id: props.env ? props.env.id : null,
     alias: form.value.alias,
@@ -223,9 +233,11 @@ const handleSave = () => {
     customUrl: form.value.customUrl,
     groupId: form.value.groupId,
     totpSecret: form.value.totpSecret,
-    passkeys: form.value.passkeys || []
+    passkeys: form.value.passkeys || [],
+    createdAt: props.env?.createdAt || now,
+    updatedAt: now
   }
-  
+
   emit('save', envData)
 }
 
@@ -279,7 +291,7 @@ watch(() => props.visible, (val) => {
   max-width: 380px;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 20px rgba(25, 118, 210, 0.2);
 }
 
 .modal-header {
@@ -287,27 +299,30 @@ watch(() => props.visible, (val) => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 14px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid #bbdefb;
+  background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+  color: #ffffff;
 }
 
 .modal-header h2 {
   margin: 0;
   font-size: 14px;
+  color: #ffffff;
 }
 
 .modal-close {
   background: none;
   border: none;
   cursor: pointer;
-  color: #999;
+  color: rgba(255, 255, 255, 0.85);
   padding: 2px;
   display: flex;
   border-radius: 3px;
 }
 
 .modal-close:hover {
-  color: #333;
-  background: #f0f0f0;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .modal-body {
@@ -330,16 +345,18 @@ watch(() => props.visible, (val) => {
 .form-group select {
   width: 100%;
   padding: 6px 8px;
-  border: 1px solid #ddd;
+  border: 1px solid #bbdefb;
   border-radius: 4px;
   font-size: 13px;
   box-sizing: border-box;
+  background: #ffffff;
 }
 
 .form-group input:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #4a4a4a;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
 }
 
 .group-select-wrapper {
@@ -358,10 +375,11 @@ watch(() => props.visible, (val) => {
 }
 
 .form-divider span {
-  background-color: white;
+  background-color: #ffffff;
   padding: 0 8px;
   font-size: 11px;
-  color: #999;
+  color: #1976d2;
+  font-weight: 500;
 }
 
 .form-divider::before {
@@ -371,7 +389,7 @@ watch(() => props.visible, (val) => {
   left: 0;
   right: 0;
   height: 1px;
-  background-color: #eee;
+  background-color: #bbdefb;
   z-index: -1;
 }
 
@@ -385,7 +403,8 @@ watch(() => props.visible, (val) => {
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 14px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid #bbdefb;
+  background: #f5f9ff;
 }
 
 .btn {
@@ -404,35 +423,36 @@ watch(() => props.visible, (val) => {
 }
 
 .btn-primary {
-  background-color: #4a4a4a;
+  background-color: #1976d2;
   color: white;
 }
 
 .btn-primary:hover {
-  background-color: #333;
+  background-color: #0d47a1;
 }
 
 .btn-secondary {
-  background-color: #e9ecef;
-  color: #333;
+  background-color: #e3f2fd;
+  color: #0d47a1;
+  border: 1px solid #bbdefb;
 }
 
 .btn-secondary:hover {
-  background-color: #dee2e6;
+  background-color: #bbdefb;
 }
 
 .btn-outline {
   background: white;
-  color: #555;
-  border: 1px solid #ccc;
+  color: #1976d2;
+  border: 1px solid #bbdefb;
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
 .btn-outline:hover {
-  background: #f5f5f5;
-  border-color: #aaa;
+  background: #e3f2fd;
+  border-color: #64b5f6;
 }
 
 .modal-enter-active,
@@ -456,9 +476,11 @@ watch(() => props.visible, (val) => {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  background: #f5f5f5;
+  background: #e3f2fd;
+  border: 1px solid #bbdefb;
   border-radius: 6px;
   font-size: 12px;
+  color: #0d47a1;
 }
 
 .passkey-tag-label {

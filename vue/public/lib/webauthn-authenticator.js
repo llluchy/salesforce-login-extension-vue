@@ -2,18 +2,13 @@
 // WebAuthn 软件认证器
 // 参考 Bitwarden 实现，完全在扩展内完成 Passkey 创建和验证
 // 不依赖系统 Passkey（Windows Hello 等）
-// V4: 移除原型链 + challenge 类型兼容 + response 内置 challenge/origin
 // ============================================
-
-console.log('[WebAuthn] webauthn-authenticator.js V4 loaded');
 
 const WebAuthnAuthenticator = {
   AAGUID: new Uint8Array([0xa2, 0x8c, 0x3d, 0xf7, 0x1b, 0x5e, 0x4a, 0x89,
                           0x9c, 0xd0, 0x2e, 0x6f, 0xb3, 0x41, 0x7a, 0xd8]),
 
   async makeCredential(options, origin) {
-    console.log('[WebAuthn] makeCredential 开始');
-
     const rpId = options.rpId || options.rp?.id || new URL(origin).hostname;
     const userId = options.user?.id || new Uint8Array(0);
     const userName = options.user?.name || '';
@@ -156,14 +151,10 @@ const WebAuthnAuthenticator = {
       createdAt: Date.now()
     };
 
-    console.log('[WebAuthn] makeCredential 完成, credentialId:', credential.id);
-
     return { credential, privateKeyData };
   },
 
   async getAssertion(options, origin, storedCredentials) {
-    console.log('[WebAuthn] getAssertion 开始');
-
     const rpId = options.rpId || new URL(origin).hostname;
 
     let matchedCredential = null;
@@ -180,11 +171,8 @@ const WebAuthnAuthenticator = {
     }
 
     if (!matchedCredential) {
-      console.log('[WebAuthn] 未找到匹配的凭证');
       return null;
     }
-
-    console.log('[WebAuthn] 找到匹配凭证:', matchedCredential.credentialId);
 
     const privateKey = await crypto.subtle.importKey(
       'jwk',
@@ -280,8 +268,6 @@ const WebAuthnAuthenticator = {
     };
 
     matchedCredential.signCount = signCount;
-
-    console.log('[WebAuthn] getAssertion 完成');
 
     return { credential, updatedCredential: matchedCredential };
   },

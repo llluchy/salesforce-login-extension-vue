@@ -42,15 +42,15 @@ defineEmits(['toggle', 'edit', 'delete'])
   justify-content: space-between;
   align-items: center;
   padding: 6px 10px;
-  background: #4a4a4a;
-  color: #e0e0e0;
+  background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+  color: #ffffff;
   border-radius: 6px 6px 0 0;
   cursor: pointer;
   transition: background 0.15s;
 }
 
 .group-header:hover {
-  background: #555;
+  background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
 }
 
 .group-header-left {

@@ -1,15 +1,81 @@
+// ============================================
+// 云同步诊断日志（开发版扩展 chrome.storage.sync 行为受限制）
+// 在 Service Worker 控制台查看（chrome://extensions → 检查视图 service worker）
+// ============================================
+const _BG_TAG = '[CloudSync/BG]'
+const _bgLog = (action, detail) => {
+  if (detail !== undefined) {
+    console.log(`${_BG_TAG} ${action}`, detail)
+  } else {
+    console.log(`${_BG_TAG} ${action}`)
+  }
+}
+const _bgWarn = (action, detail) => console.warn(`${_BG_TAG} ⚠ ${action}`, detail || '')
+const _bgErr = (action, err) => console.error(`${_BG_TAG} ✗ ${action}`, err || '')
+
+// Service Worker 启动时输出环境信息
+_bgLog('Service Worker 启动', (() => {
+  try {
+    const manifest = chrome.runtime.getManifest()
+    const info = {
+      extensionId: chrome.runtime.id,
+      name: manifest.name,
+      version: manifest.version,
+      manifestVersion: manifest.manifest_version,
+      // update_url 仅 Web Store 安装的扩展才有；开发版/未打包没有
+      hasUpdateUrl: 'update_url' in manifest,
+      installType: '(unknown)'
+    }
+    info.isFromWebStore = info.hasUpdateUrl
+    info.isDev = !info.hasUpdateUrl
+
+    // chrome.management.getSelf 可获取 installType
+    // 但需要 management 权限，因此包在 try/catch 里
+    if (chrome.management && chrome.management.getSelf) {
+      chrome.management.getSelf().then(selfInfo => {
+        _bgLog('installType', { installType: selfInfo.installType })
+        if (selfInfo.installType === 'development') {
+          _bgWarn('当前为开发版扩展 (development)', {
+            note: 'chrome.storage.sync 在开发版扩展中行为受限',
+            impact: '可能无法真正同步到 Google 账户云端，仅表现为本地持久存储',
+            advice: '数据可能在卸载扩展时丢失，需要从 Chrome Web Store 安装才能使用真正的云同步'
+          })
+        }
+      }).catch(e => _bgWarn('getSelf 失败', e.message))
+    }
+    return info
+  } catch (e) {
+    return { error: e.message }
+  }
+})())
+
+// 监听 storage.onChanged 事件，输出 storage 变化日志
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  const interestingKeys = ['salesforce_environments', 'salesforce_groups']
+  const relevant = Object.keys(changes).filter(k => interestingKeys.includes(k))
+  if (relevant.length === 0) return
+
+  for (const key of relevant) {
+    const change = changes[key]
+    _bgLog(`storage.onChanged (${areaName})`, {
+      key,
+      oldValueCount: Array.isArray(change.oldValue) ? change.oldValue.length : (change.oldValue ? 'object' : '(empty)'),
+      newValueCount: Array.isArray(change.newValue) ? change.newValue.length : (change.newValue ? 'object' : '(empty)'),
+      newValueIds: Array.isArray(change.newValue) ? change.newValue.map(e => e.id) : null
+    })
+  }
+})
+
 chrome.action.onClicked.addListener(async (tab) => {
   try {
     await chrome.sidePanel.open({ tabId: tab.id });
   } catch (error) {
-    console.error('Failed to open side panel:', error);
+    // 静默失败
   }
 });
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
-  .catch((error) => {
-    console.error('Failed to set panel behavior:', error);
-  });
+  .catch(() => {});
 
 let pendingQRCallback = null;
 
@@ -64,387 +130,71 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  if (request.action === 'contentLog') {
-    console.log(`[content:${sender.tab?.id || '?'}] ${request.message}`);
-    sendResponse({ success: true });
-    return true;
+  // ========== Passkey 凭证与环境管理（转发给 Side Panel） ==========
+  // background.js（Service Worker）无法持有 CryptoKey，所有加解密在 Side Panel 完成。
+  // 若 Side Panel 未打开或未登录，返回明确错误提示。
+
+  const PASSKEY_FORWARD_ACTIONS = {
+    'storePrivateKey':       'bg:storePasskey',
+    'getStoredCredentials':  'bg:getPasskeys',
+    'updateCredential':      'bg:updatePasskey',
+    'exportPasskeyBackup':   'bg:exportPasskeyBackup',
+    'importPasskeyBackup':   'bg:importPasskeyBackup',
+    'manualBindCredential':  'bg:manualBindPasskey',
+    'exportCredentialById':  'bg:getPasskeyById',
+    'listAllCredentials':    'bg:listPasskeys',
+    'getEnvironments':       'bg:getEnvironments',
+    'saveNewEnvironment':    'bg:saveNewEnvironment',
+    'bindPasskeyToEnv':      'bg:bindPasskeyToEnv'
   }
 
-  // ========== Passkey 拦截处理 ==========
-
-  if (request.action === 'webauthnGetIntercepted') {
-    let tabId = sender.tab?.id;
-    console.log('[SF Passkey BG] 收到认证请求');
-    console.log('[SF Passkey BG] requestId:', request.requestId);
-    console.log('[SF Passkey BG] rpId:', request.rpId);
-    console.log('[SF Passkey BG] tabId (from sender):', tabId);
-
-    chrome.storage.local.set({
-      __sf_passkey_auth_request: {
-        requestId: request.requestId,
-        tabId: tabId,
-        rpId: request.rpId,
-        challenge: request.challenge,
-        allowCredentials: request.allowCredentials,
-        timestamp: Date.now()
-      }
-    }, () => {
-      console.log('[SF Passkey BG] 已存储认证请求到 storage');
-    });
-
-    chrome.action.setBadgeText({ text: '!' });
-    chrome.action.setBadgeBackgroundColor({ color: '#FF5722' });
-
-    const openSidePanel = async () => {
-      if (!tabId) {
-        try {
-          const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-          if (tabs.length > 0) {
-            tabId = tabs[0].id;
-            console.log('[SF Passkey BG] 通过 tabs.query 获取 tabId:', tabId);
-          }
-        } catch (e) {
-          console.error('[SF Passkey BG] tabs.query 失败:', e);
-        }
-      }
-
-      if (tabId) {
-        try {
-          await chrome.sidePanel.open({ tabId: tabId });
-          console.log('[SF Passkey BG] 已打开 Side Panel');
-        } catch (e) {
-          console.error('[SF Passkey BG] 打开 Side Panel 失败:', e);
-          
-          try {
-            await chrome.action.openPopup();
-            console.log('[SF Passkey BG] 降级到打开 popup');
-          } catch (e2) {
-            console.error('[SF Passkey BG] 打开 popup 也失败:', e2);
-          }
-        }
-      } else {
-        console.warn('[SF Passkey BG] 无法获取 tabId，无法打开 Side Panel');
-      }
-    };
-
-    openSidePanel();
-
-    sendResponse({ intercept: true });
-    return true;
+  const targetAction = PASSKEY_FORWARD_ACTIONS[request.action]
+  if (targetAction) {
+    forwardPasskeyToSidePanel(request, targetAction, sendResponse)
+    return true
   }
+})
 
-  if (request.action === 'webauthnCreateIntercepted') {
-    const tabId = sender.tab?.id;
-    console.log('[SF Passkey BG] 收到注册请求');
-    console.log('[SF Passkey BG] requestId:', request.requestId);
-    console.log('[SF Passkey BG] rpId:', request.rpId);
-    console.log('[SF Passkey BG] tabId:', tabId);
+// ============================================
+// 转发 Passkey/环境请求到 Side Panel
+// Side Panel 持有 cryptoKey 和 Supabase client，负责加解密与云端读写
+// ============================================
+async function forwardPasskeyToSidePanel(request, targetAction, sendResponse) {
+  const forwardMsg = { ...request, action: targetAction }
 
-    chrome.storage.local.set({
-      __sf_passkey_auth_request: {
-        requestId: request.requestId,
-        tabId: tabId,
-        rpId: request.rpId,
-        challenge: request.challenge,
-        allowCredentials: [],
-        type: 'create',
-        timestamp: Date.now()
-      }
-    });
-
-    chrome.action.setBadgeText({ text: '+' });
-    chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
-
-    if (tabId) {
-      chrome.sidePanel.open({ tabId: tabId }).then(() => {
-        console.log('[SF Passkey BG] 已打开 Side Panel（注册）');
-      }).catch((e) => {
-        console.error('[SF Passkey BG] 打开 Side Panel 失败:', e);
-      });
-    }
-
-    sendResponse({ intercept: true });
-    return true;
-  }
-
-  if (request.action === 'passkeyRegistered') {
-    chrome.storage.local.set({
-      __sf_passkey_pending_registration: {
-        credentialId: request.credentialId,
-        rpId: request.rpId,
-        userHandle: request.userHandle,
-        timestamp: Date.now()
-      }
-    });
-    sendResponse({ success: true });
-    return true;
-  }
-
-  // ========== 私钥存储和检索 ==========
-
+  // storePrivateKey 是扁平结构，包装成 credential 对象以匹配 Side Panel 接口
   if (request.action === 'storePrivateKey') {
-    console.log('[SF Passkey BG] 存储私钥，credentialId:', request.credentialId, 'envId:', request.envId);
-    chrome.storage.local.get('__sf_passkey_credentials', (result) => {
-      const credentials = result.__sf_passkey_credentials || [];
-      credentials.push({
-        credentialId: request.credentialId,
-        rpId: request.rpId,
-        privateKeyJwk: request.privateKeyJwk,
-        publicKeyJwk: request.publicKeyJwk,
-        userId: request.userId || '',
-        userName: request.userName,
-        userDisplayName: request.userDisplayName,
-        envId: request.envId,
-        signCount: request.signCount || 0,
-        createdAt: request.createdAt || Date.now()
-      });
-      chrome.storage.local.set({ __sf_passkey_credentials: credentials }, () => {
-        console.log('[SF Passkey BG] 私钥已存储，共', credentials.length, '个凭证');
-        sendResponse({ success: true });
-      });
-    });
-    return true;
-  }
-
-  if (request.action === 'getStoredCredentials') {
-    console.log('[SF Passkey BG] 获取存储的凭证，rpId:', request.rpId);
-    chrome.storage.local.get('__sf_passkey_credentials', (result) => {
-      const allCredentials = result.__sf_passkey_credentials || [];
-      const filtered = request.rpId
-        ? allCredentials.filter(c => c.rpId === request.rpId)
-        : allCredentials;
-      console.log('[SF Passkey BG] 找到', filtered.length, '个匹配凭证');
-      sendResponse({ credentials: filtered });
-    });
-    return true;
-  }
-
-  if (request.action === 'updateCredential') {
-    console.log('[SF Passkey BG] 更新凭证，credentialId:', request.credential?.credentialId);
-    chrome.storage.local.get('__sf_passkey_credentials', (result) => {
-      const credentials = result.__sf_passkey_credentials || [];
-      const index = credentials.findIndex(c => c.credentialId === request.credential?.credentialId);
-      if (index !== -1) {
-        credentials[index] = { ...credentials[index], ...request.credential };
-        chrome.storage.local.set({ __sf_passkey_credentials: credentials }, () => {
-          sendResponse({ success: true });
-        });
-      } else {
-        sendResponse({ success: false, error: 'Credential not found' });
-      }
-    });
-    return true;
-  }
-
-  if (request.action === 'selectPasskeyForAuth') {
-    const { tabId, credential, requestId } = request;
-
-    console.log('[SF Passkey BG] 收到 selectPasskeyForAuth，tabId:', tabId, 'requestId:', requestId, 'credential:', credential);
-
-    if (tabId) {
-      chrome.tabs.sendMessage(tabId, {
-        action: 'passkeySelected',
-        requestId: requestId,
-        credential: credential
-      }).then(() => {
-        console.log('[SF Passkey BG] 已发送 passkeySelected 到 tab', tabId);
-      }).catch((e) => {
-        console.error('[SF Passkey BG] 发送 passkeySelected 到 tab 失败:', e);
-      });
+    forwardMsg.credential = {
+      credentialId: request.credentialId,
+      rpId: request.rpId,
+      privateKeyJwk: request.privateKeyJwk,
+      publicKeyJwk: request.publicKeyJwk,
+      userId: request.userId || '',
+      userName: request.userName,
+      userDisplayName: request.userDisplayName,
+      envId: request.envId,
+      signCount: request.signCount || 0,
+      createdAt: request.createdAt || Date.now()
     }
-
-    sendResponse({ success: true });
-    return true;
   }
 
-  if (request.action === 'cancelPasskeySelection') {
-    const { tabId, requestId } = request;
+  _bgLog('转发 Passkey 请求', { from: request.action, to: targetAction })
 
-    console.log('[SF Passkey BG] 收到 cancelPasskeySelection，tabId:', tabId, 'requestId:', requestId);
-
-    if (tabId) {
-      chrome.tabs.sendMessage(tabId, {
-        action: 'passkeySelectionCancelled',
-        requestId: requestId
-      }).then(() => {
-        console.log('[SF Passkey BG] 已发送 passkeySelectionCancelled 到 tab', tabId);
-      }).catch((e) => {
-        console.error('[SF Passkey BG] 发送 passkeySelectionCancelled 到 tab 失败:', e);
-      });
+  try {
+    const response = await chrome.runtime.sendMessage(forwardMsg)
+    if (response === undefined) {
+      sendResponse({ success: false, error: '扩展面板未打开，请先点击扩展图标打开面板并登录' })
+    } else {
+      sendResponse(response)
     }
-
-    sendResponse({ success: true });
-    return true;
+  } catch (err) {
+    _bgErr('转发 Passkey 请求失败 ' + request.action, err)
+    sendResponse({
+      success: false,
+      error: '扩展面板未打开或未登录，请先点击扩展图标打开面板并登录后再使用 Passkey 功能'
+    })
   }
-
-  // ========== Passkey 备份与恢复 ==========
-
-  if (request.action === 'exportPasskeyBackup') {
-    chrome.storage.local.get(['__sf_passkey_credentials', '__sf_environments'], (result) => {
-      const backup = {
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        credentials: result.__sf_passkey_credentials || [],
-        environments: result.__sf_environments || []
-      };
-      console.log('[SF Passkey BG] 导出备份，凭证数:', backup.credentials.length, '环境数:', backup.environments.length);
-      sendResponse({ success: true, backup });
-    });
-    return true;
-  }
-
-  if (request.action === 'importPasskeyBackup') {
-    const backup = request.backup;
-    if (!backup || !Array.isArray(backup.credentials)) {
-      sendResponse({ success: false, error: '备份文件格式无效' });
-      return true;
-    }
-
-    chrome.storage.local.get(['__sf_passkey_credentials', '__sf_environments'], (result) => {
-      const existingCreds = result.__sf_passkey_credentials || [];
-      const existingEnvs = result.__sf_environments || [];
-
-      // 按 credentialId 去重合并凭证
-      const mergedCreds = [...existingCreds];
-      let newCredCount = 0;
-      for (const cred of backup.credentials) {
-        if (!mergedCreds.find(c => c.credentialId === cred.credentialId)) {
-          mergedCreds.push(cred);
-          newCredCount++;
-        }
-      }
-
-      // 按 id 去重合并环境
-      const mergedEnvs = [...existingEnvs];
-      let newEnvCount = 0;
-      if (Array.isArray(backup.environments)) {
-        for (const env of backup.environments) {
-          if (!mergedEnvs.find(e => e.id === env.id)) {
-            mergedEnvs.push(env);
-            newEnvCount++;
-          }
-        }
-      }
-
-      chrome.storage.local.set({
-        __sf_passkey_credentials: mergedCreds,
-        __sf_environments: mergedEnvs
-      }, () => {
-        console.log('[SF Passkey BG] 导入备份完成，新增凭证:', newCredCount, '新增环境:', newEnvCount);
-        sendResponse({
-          success: true,
-          imported: {
-            credentials: newCredCount,
-            environments: newEnvCount,
-            totalCredentials: mergedCreds.length,
-            totalEnvironments: mergedEnvs.length
-          }
-        });
-      });
-    });
-    return true;
-  }
-
-  // 手动绑定单个凭证（粘贴完整 JSON 或从列表选择更新 envId）
-  if (request.action === 'manualBindCredential') {
-    const cred = request.credential;
-    if (!cred || !cred.credentialId) {
-      sendResponse({ success: false, error: '凭证数据不完整：需要 credentialId' });
-      return true;
-    }
-
-    chrome.storage.local.get('__sf_passkey_credentials', (result) => {
-      const existingCreds = result.__sf_passkey_credentials || [];
-      const index = existingCreds.findIndex(c => c.credentialId === cred.credentialId);
-
-      if (index !== -1) {
-        // 凭证已存在，只更新 envId 和其他传入字段
-        const existing = existingCreds[index];
-        const updated = {
-          ...existing,
-          ...cred
-        };
-        // 确保 privateKeyJwk 不会被空值覆盖
-        if (!cred.privateKeyJwk && existing.privateKeyJwk) {
-          updated.privateKeyJwk = existing.privateKeyJwk;
-        }
-        if (!cred.publicKeyJwk && existing.publicKeyJwk) {
-          updated.publicKeyJwk = existing.publicKeyJwk;
-        }
-        existingCreds[index] = updated;
-        console.log('[SF Passkey BG] 手动绑定：更新已存在的凭证 envId:', cred.credentialId, '→', cred.envId);
-      } else {
-        // 凭证不存在，需要完整数据
-        if (!cred.privateKeyJwk) {
-          sendResponse({ success: false, error: '凭证数据不完整：新凭证需要 privateKeyJwk' });
-          return;
-        }
-        const newCred = {
-          credentialId: cred.credentialId,
-          rpId: cred.rpId || 'salesforce.com',
-          privateKeyJwk: cred.privateKeyJwk,
-          publicKeyJwk: cred.publicKeyJwk || null,
-          userId: cred.userId || '',
-          userName: cred.userName || '',
-          userDisplayName: cred.userDisplayName || '',
-          envId: cred.envId || null,
-          signCount: cred.signCount || 0,
-          createdAt: cred.createdAt || Date.now()
-        };
-        existingCreds.push(newCred);
-        console.log('[SF Passkey BG] 手动绑定：新增凭证', cred.credentialId);
-      }
-
-      chrome.storage.local.set({ __sf_passkey_credentials: existingCreds }, () => {
-        sendResponse({
-          success: true,
-          total: existingCreds.length,
-          action: index !== -1 ? 'updated' : 'added'
-        });
-      });
-    });
-    return true;
-  }
-
-  // 按 credentialId 导出单个凭证（控制台调试用）
-  if (request.action === 'exportCredentialById') {
-    const credId = request.credentialId;
-    if (!credId) {
-      sendResponse({ success: false, error: '缺少 credentialId' });
-      return true;
-    }
-    chrome.storage.local.get('__sf_passkey_credentials', (result) => {
-      const creds = result.__sf_passkey_credentials || [];
-      const found = creds.find(c => c.credentialId === credId);
-      if (found) {
-        sendResponse({ success: true, credential: found });
-      } else {
-        sendResponse({ success: false, error: '未找到该 credentialId 对应的凭证' });
-      }
-    });
-    return true;
-  }
-
-  // 列出所有凭证的 credentialId（用于在 UI 中选择绑定）
-  if (request.action === 'listAllCredentials') {
-    chrome.storage.local.get('__sf_passkey_credentials', (result) => {
-      const creds = result.__sf_passkey_credentials || [];
-      sendResponse({
-        success: true,
-        credentials: creds.map(c => ({
-          credentialId: c.credentialId,
-          rpId: c.rpId,
-          userId: c.userId,
-          userName: c.userName,
-          envId: c.envId,
-          createdAt: c.createdAt,
-          hasPrivateKey: !!c.privateKeyJwk
-        }))
-      });
-    });
-    return true;
-  }
-});
+}
 
 async function handleStartAreaQR(sendResponse) {
   try {
@@ -527,24 +277,19 @@ async function handleLoginAction(request, sendResponse) {
       loginUrl = 'https://login.salesforce.com';
     }
 
-    console.log('[handleLoginAction] 开始登录', { type: env.type, username: env.username, loginUrl });
-
     const tab = await chrome.tabs.create({ url: loginUrl });
     const tabId = tab.id;
 
     await waitForTabLoaded(tabId);
-    console.log('[handleLoginAction] 登录页加载完成，注入隐藏表单');
 
     await chrome.scripting.executeScript({
       target: { tabId },
       func: submitHiddenForm,
       args: [loginUrl, env.username, env.password]
     });
-    console.log('[handleLoginAction] 隐藏表单已提交');
 
     sendResponse({ success: true });
   } catch (error) {
-    console.error('[handleLoginAction] 错误', error);
     sendResponse({ success: false, error: error.message });
   }
 }
@@ -607,23 +352,18 @@ async function handleFormPostLogin(request, sendResponse) {
   try {
     const { loginUrl, username, password, totpCode } = request;
 
-    console.log('[formPostLogin] 开始隐藏表单POST登录', { loginUrl, username, hasTotp: !!totpCode });
-
     const tab = await chrome.tabs.create({ url: loginUrl });
     const tabId = tab.id;
 
     await waitForTabLoaded(tabId);
-    console.log('[formPostLogin] 登录页加载完成，注入隐藏表单');
 
     await chrome.scripting.executeScript({
       target: { tabId },
       func: submitHiddenForm,
       args: [loginUrl, username, password]
     });
-    console.log('[formPostLogin] 隐藏表单已提交');
 
     if (totpCode) {
-      console.log('[formPostLogin] 等待MFA页面加载，准备填入TOTP');
       await waitForTabLoaded(tabId, 20000);
       await new Promise(r => setTimeout(r, 1000));
 
@@ -636,15 +376,13 @@ async function handleFormPostLogin(request, sendResponse) {
           action: 'fillTotpCode',
           totpCode
         });
-        console.log('[formPostLogin] TOTP填入指令已发送');
       } catch (e) {
-        console.log('[formPostLogin] TOTP填入失败', e.message);
+        // 静默失败
       }
     }
 
     sendResponse({ success: true });
   } catch (error) {
-    console.error('[formPostLogin] 错误', error);
     sendResponse({ success: false, error: error.message });
   }
 }

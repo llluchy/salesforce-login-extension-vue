@@ -4,6 +4,10 @@
  * 使用 Web Crypto API，无需外部依赖
  */
 
+// 防止重复加载导致 const 重复声明报错
+if (typeof window.__TOTP_LOADED__ === 'undefined') {
+  window.__TOTP_LOADED__ = true
+
 const TOTP = {
   /**
    * 生成当前 TOTP Code
@@ -104,3 +108,5 @@ window.getRemainingSeconds = () => TOTP.getRemainingSeconds();
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = TOTP;
 }
+
+} // end if (!__TOTP_LOADED__)

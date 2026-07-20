@@ -14,28 +14,13 @@
       <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 6h16v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/><path d="M6 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="9" x2="10" y2="14"/><line x1="7.5" y1="11.5" x2="12.5" y2="11.5"/></svg>
       <span>创建分组</span>
     </button>
-    <button class="btn-action btn-test" @click="$emit('test-passkey')">
-      <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="14" height="7" rx="2"/><circle cx="10" cy="7" r="4"/><path d="M6 11V9a4 4 0 018 0v2"/></svg>
-      <span>测试 Passkey</span>
+    <button class="btn-action btn-account" @click="$emit('account')" title="账户管理">
+      <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="7" r="3"/><path d="M3 17a7 7 0 0114 0"/></svg>
     </button>
-    <button class="btn-action btn-backup" @click="$emit('export-backup')" title="导出 Passkey 凭证备份">
-      <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 3v10"/><path d="M6 9l4 4 4-4"/><path d="M3 15v2a1 1 0 001 1h12a1 1 0 001-1v-2"/></svg>
-      <span>导出备份</span>
-    </button>
-    <button class="btn-action btn-backup" @click="$emit('import-backup')" title="从备份文件恢复 Passkey 凭证">
-      <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13V3"/><path d="M6 7l4-4 4 4"/><path d="M3 15v2a1 1 0 001 1h12a1 1 0 001-1v-2"/></svg>
-      <span>导入备份</span>
-    </button>
-    <button class="btn-action btn-manual" @click="$emit('manual-bind')" title="手动绑定 Passkey 凭证（粘贴 JSON 或按 credentialId 导出）">
-      <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 2v6M10 12v6M2 10h6M12 10h6"/></svg>
-      <span>手动绑定</span>
-    </button>
-    <input ref="fileInputRef" type="file" accept=".json" style="display:none" @change="$emit('import-file', $event)" />
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
 defineProps({
   envCount: {
     type: Number,
@@ -44,20 +29,22 @@ defineProps({
   maxEnvironments: {
     type: Number,
     default: 50
+  },
+  accountEmail: {
+    type: String,
+    default: ''
   }
 })
 
-defineEmits(['add-env', 'add-group', 'test-passkey', 'export-backup', 'import-backup', 'import-file', 'manual-bind'])
-
-const fileInputRef = ref(null)
-defineExpose({ fileInputRef })
+defineEmits(['add-env', 'add-group', 'account'])
 </script>
 
 <style scoped>
 .toolbar {
-  background: #2c2c2c;
+  background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
   color: white;
-  padding: 6px 12px;
+  padding: 8px 12px;
+  box-shadow: 0 2px 6px rgba(25, 118, 210, 0.25);
 }
 
 .toolbar-title-row {
@@ -68,23 +55,27 @@ defineExpose({ fileInputRef })
 
 .toolbar-title {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.3;
+  letter-spacing: 0.3px;
 }
 
 .toolbar-count {
   font-size: 11px;
-  opacity: 0.6;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 2px 8px;
+  border-radius: 10px;
 }
 
 .toolbar-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 6px 12px;
-  background: #3a3a3a;
-  border-bottom: 1px solid #2c2c2c;
+  gap: 6px;
+  padding: 8px 12px;
+  background: #e3f2fd;
+  border-bottom: 1px solid #bbdefb;
+  flex-wrap: wrap;
 }
 
 .btn-action {
@@ -92,48 +83,58 @@ defineExpose({ fileInputRef })
   align-items: center;
   justify-content: center;
   padding: 4px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border: 1px solid #bbdefb;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
-  color: white;
+  background: #ffffff;
+  color: #0d47a1;
   cursor: pointer;
   transition: all 0.15s;
   gap: 5px;
   font-size: 12px;
+  font-weight: 500;
 }
 
 .btn-action:hover {
-  background: rgba(255, 255, 255, 0.18);
-  border-color: rgba(255, 255, 255, 0.4);
-}
-
-.btn-test {
-  border-color: rgba(76, 175, 80, 0.4);
-  color: #81c784;
-}
-
-.btn-test:hover {
-  background: rgba(76, 175, 80, 0.15);
-  border-color: rgba(76, 175, 80, 0.6);
+  background: #bbdefb;
+  border-color: #1976d2;
+  color: #0d47a1;
 }
 
 .btn-backup {
-  border-color: rgba(255, 152, 0, 0.4);
-  color: #ffb74d;
+  border-color: #90caf9;
+  color: #1565c0;
 }
 
 .btn-backup:hover {
-  background: rgba(255, 152, 0, 0.15);
-  border-color: rgba(255, 152, 0, 0.6);
+  background: #e3f2fd;
+  border-color: #1565c0;
+}
+
+.btn-account {
+  border-color: #64b5f6;
+  color: #0d47a1;
+  background: #bbdefb;
+}
+
+.btn-account:hover {
+  background: #90caf9;
+  border-color: #0d47a1;
 }
 
 .btn-manual {
-  border-color: rgba(156, 39, 176, 0.4);
-  color: #ce93d8;
+  border-color: #90caf9;
+  color: #1565c0;
 }
 
 .btn-manual:hover {
-  background: rgba(156, 39, 176, 0.15);
-  border-color: rgba(156, 39, 176, 0.6);
+  background: #e3f2fd;
+  border-color: #1565c0;
+}
+
+.account-email-text {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

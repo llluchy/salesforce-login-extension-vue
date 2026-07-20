@@ -132,6 +132,9 @@
 
 <script setup>
 import { ref, watch, computed } from 'vue'
+import { useStorage } from '../composables/useStorage'
+
+const { loadPasskeyCredentials, savePasskeyCredential, getPasskeyCredentialById, loadEnvironments, saveEnvironments } = useStorage()
 
 const props = defineProps({
   visible: Boolean,
@@ -181,10 +184,16 @@ watch(() => props.visible, (v) => {
 const loadCredentialList = async () => {
   loading.value = true
   try {
-    const res = await chrome.runtime.sendMessage({ action: 'listAllCredentials' })
-    if (res?.success) {
-      credentialList.value = res.credentials
-    }
+    const creds = await loadPasskeyCredentials()
+    credentialList.value = creds.map(c => ({
+      credentialId: c.credentialId,
+      rpId: c.rpId,
+      userId: c.userId,
+      userName: c.userName,
+      envId: c.envId,
+      createdAt: c.createdAt,
+      hasPrivateKey: !!c.privateKeyJwk
+    }))
   } catch (e) {
     console.error('Load credentials error:', e)
   } finally {
@@ -205,14 +214,13 @@ const bindFromList = async () => {
   try {
     const selectedCred = credentialList.value.find(c => c.credentialId === selectedCredId.value)
     const credRpId = selectedCred?.rpId || 'salesforce.com'
-    const res = await chrome.runtime.sendMessage({
-      action: 'manualBindCredential',
-      credential: {
-        credentialId: selectedCredId.value,
-        envId: targetEnvId,
-        rpId: credRpId
-      }
-    })
+    const fullCred = await getPasskeyCredentialById(selectedCredId.value)
+    if (!fullCred) {
+      alert('未找到该凭证')
+      return
+    }
+    const updatedCred = { ...fullCred, envId: targetEnvId }
+    const res = await savePasskeyCredential(updatedCred)
     if (res?.success) {
       emit('bound', { envId: targetEnvId, credentialId: selectedCredId.value, rpId: credRpId })
       emit('close')
@@ -243,10 +251,7 @@ const bindFromPaste = async () => {
     if (!cred.rpId) {
       cred.rpId = 'salesforce.com'
     }
-    const res = await chrome.runtime.sendMessage({
-      action: 'manualBindCredential',
-      credential: cred
-    })
+    const res = await savePasskeyCredential(cred)
     if (res?.success) {
       emit('bound', { envId: targetEnvId, credentialId: cred.credentialId, rpId: cred.rpId })
       emit('close')
@@ -262,14 +267,11 @@ const exportByCredId = async () => {
   credIdError.value = ''
   exportedJson.value = ''
   try {
-    const res = await chrome.runtime.sendMessage({
-      action: 'exportCredentialById',
-      credentialId: credIdInput.value.trim()
-    })
-    if (res?.success) {
-      exportedJson.value = JSON.stringify(res.credential, null, 2)
+    const cred = await getPasskeyCredentialById(credIdInput.value.trim())
+    if (cred) {
+      exportedJson.value = JSON.stringify(cred, null, 2)
     } else {
-      credIdError.value = res?.error || '未找到该凭证'
+      credIdError.value = '未找到该凭证'
     }
   } catch (e) {
     credIdError.value = e.message || '导出失败'
@@ -307,6 +309,7 @@ const copyExported = async () => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 4px 20px rgba(25, 118, 210, 0.25);
 }
 
 .modal-header {
@@ -314,8 +317,8 @@ const copyExported = async () => {
   justify-content: space-between;
   align-items: center;
   padding: 14px 16px;
-  border-bottom: 1px solid #e0e0e0;
-  background: #2c2c2c;
+  border-bottom: 1px solid #bbdefb;
+  background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
   color: white;
 }
 
@@ -323,16 +326,23 @@ const copyExported = async () => {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
+  color: #ffffff;
 }
 
 .close-btn {
   background: none;
   border: none;
-  color: white;
+  color: rgba(255, 255, 255, 0.85);
   font-size: 22px;
   cursor: pointer;
   padding: 0;
   line-height: 1;
+  border-radius: 3px;
+}
+
+.close-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .modal-body {
@@ -354,10 +364,11 @@ const copyExported = async () => {
 }
 
 .format-tip code {
-  background: #f0f0f0;
+  background: #e3f2fd;
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 11px;
+  color: #0d47a1;
 }
 
 .env-select-row {
@@ -367,17 +378,24 @@ const copyExported = async () => {
 .env-select {
   width: 100%;
   padding: 6px 8px;
-  border: 1px solid #ddd;
+  border: 1px solid #bbdefb;
   border-radius: 4px;
   font-size: 12px;
   background: white;
 }
 
+.env-select:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
+}
+
 .selected-env-info {
   font-size: 12px;
-  color: #2196f3;
+  color: #0d47a1;
   padding: 6px 8px;
   background: #e3f2fd;
+  border: 1px solid #bbdefb;
   border-radius: 4px;
   margin: 0 0 8px;
 }
@@ -393,17 +411,18 @@ const copyExported = async () => {
   align-items: center;
   gap: 8px;
   padding: 12px;
-  border: 1px solid #ddd;
+  border: 1px solid #bbdefb;
   border-radius: 6px;
-  background: #fafafa;
+  background: #f5f9ff;
   cursor: pointer;
   text-align: left;
   transition: all 0.15s;
+  color: #0d47a1;
 }
 
 .mode-btn:hover {
-  background: #f0f7ff;
-  border-color: #2196f3;
+  background: #e3f2fd;
+  border-color: #1976d2;
 }
 
 .mode-btn span {
@@ -413,8 +432,9 @@ const copyExported = async () => {
 
 .mode-btn small {
   font-size: 11px;
-  color: #999;
+  color: #1976d2;
   margin-left: auto;
+  opacity: 0.7;
 }
 
 .cred-list {
@@ -428,20 +448,22 @@ const copyExported = async () => {
 
 .cred-item {
   padding: 10px;
-  border: 1px solid #ddd;
+  border: 1px solid #bbdefb;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s;
+  background: #ffffff;
 }
 
 .cred-item:hover {
-  border-color: #2196f3;
-  background: #f5f5f5;
+  border-color: #1976d2;
+  background: #f5f9ff;
 }
 
 .cred-item.selected {
-  border-color: #2196f3;
+  border-color: #1976d2;
   background: #e3f2fd;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
 }
 
 .cred-info {
@@ -484,23 +506,37 @@ const copyExported = async () => {
   width: 100%;
   min-height: 180px;
   padding: 8px;
-  border: 1px solid #ddd;
+  border: 1px solid #bbdefb;
   border-radius: 4px;
   font-family: monospace;
   font-size: 11px;
   resize: vertical;
   box-sizing: border-box;
+  background: #f5f9ff;
+}
+
+.json-textarea:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
 }
 
 .credId-input {
   width: 100%;
   padding: 8px;
-  border: 1px solid #ddd;
+  border: 1px solid #bbdefb;
   border-radius: 4px;
   font-family: monospace;
   font-size: 11px;
   box-sizing: border-box;
   margin-bottom: 12px;
+  background: #f5f9ff;
+}
+
+.credId-input:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
 }
 
 .export-result {
@@ -549,25 +585,26 @@ const copyExported = async () => {
 }
 
 .btn-primary {
-  background: #2196f3;
+  background: #1976d2;
   color: white;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #1976d2;
+  background: #0d47a1;
 }
 
 .btn-primary:disabled {
-  background: #bbb;
+  background: #90caf9;
   cursor: not-allowed;
 }
 
 .btn-secondary {
-  background: #f0f0f0;
-  color: #333;
+  background: #e3f2fd;
+  color: #0d47a1;
+  border: 1px solid #bbdefb;
 }
 
 .btn-secondary:hover {
-  background: #e0e0e0;
+  background: #bbdefb;
 }
 </style>

@@ -88,7 +88,7 @@ watch(() => props.visible, (val) => {
   border-radius: 8px;
   width: 90%;
   max-width: 360px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 20px rgba(25, 118, 210, 0.2);
 }
 
 .modal-header {
@@ -96,12 +96,15 @@ watch(() => props.visible, (val) => {
   justify-content: space-between;
   align-items: center;
   padding: 16px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid #bbdefb;
+  background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+  color: #ffffff;
 }
 
 .modal-header h2 {
   margin: 0;
   font-size: 16px;
+  color: #ffffff;
 }
 
 .modal-close {
@@ -109,7 +112,13 @@ watch(() => props.visible, (val) => {
   border: none;
   font-size: 24px;
   cursor: pointer;
-  color: #999;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.modal-close:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
 }
 
 .modal-body {
@@ -131,15 +140,17 @@ watch(() => props.visible, (val) => {
 .form-group input {
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid #ddd;
+  border: 1px solid #bbdefb;
   border-radius: 4px;
   font-size: 13px;
   box-sizing: border-box;
+  background: #ffffff;
 }
 
 .form-group input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
 }
 
 .modal-footer {
@@ -147,7 +158,8 @@ watch(() => props.visible, (val) => {
   justify-content: flex-end;
   gap: 10px;
   padding: 16px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid #bbdefb;
+  background: #f5f9ff;
 }
 
 .btn {
@@ -161,21 +173,22 @@ watch(() => props.visible, (val) => {
 }
 
 .btn-primary {
-  background-color: #007bff;
+  background-color: #1976d2;
   color: white;
 }
 
 .btn-primary:hover {
-  background-color: #0056b3;
+  background-color: #0d47a1;
 }
 
 .btn-secondary {
-  background-color: #e9ecef;
-  color: #333;
+  background-color: #e3f2fd;
+  color: #0d47a1;
+  border: 1px solid #bbdefb;
 }
 
 .btn-secondary:hover {
-  background-color: #dee2e6;
+  background-color: #bbdefb;
 }
 
 .modal-enter-active,
