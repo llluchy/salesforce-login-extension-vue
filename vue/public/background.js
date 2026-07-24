@@ -125,11 +125,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  if (request.action === 'fillTotpCode') {
-    handleFillTotpCode(request, sendResponse);
-    return true;
-  }
-
   // ========== Passkey 凭证与环境管理（转发给 Side Panel） ==========
   // background.js（Service Worker）无法持有 CryptoKey，所有加解密在 Side Panel 完成。
   // 若 Side Panel 未打开或未登录，返回明确错误提示。
@@ -144,6 +139,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     'exportCredentialById':  'bg:getPasskeyById',
     'listAllCredentials':    'bg:listPasskeys',
     'getEnvironments':       'bg:getEnvironments',
+    'getPendingLoginEnv':    'bg:getPendingLoginEnv',
     'saveNewEnvironment':    'bg:saveNewEnvironment',
     'bindPasskeyToEnv':      'bg:bindPasskeyToEnv'
   }
@@ -182,6 +178,7 @@ async function forwardPasskeyToSidePanel(request, targetAction, sendResponse) {
 
   try {
     const response = await chrome.runtime.sendMessage(forwardMsg)
+    _bgLog('转发 Passkey 收到响应', { from: request.action, response })
     if (response === undefined) {
       sendResponse({ success: false, error: '扩展面板未打开，请先点击扩展图标打开面板并登录' })
     } else {
@@ -363,24 +360,6 @@ async function handleFormPostLogin(request, sendResponse) {
       args: [loginUrl, username, password]
     });
 
-    if (totpCode) {
-      await waitForTabLoaded(tabId, 20000);
-      await new Promise(r => setTimeout(r, 1000));
-
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          files: ['content.js']
-        });
-        await chrome.tabs.sendMessage(tabId, {
-          action: 'fillTotpCode',
-          totpCode
-        });
-      } catch (e) {
-        // 静默失败
-      }
-    }
-
     sendResponse({ success: true });
   } catch (error) {
     sendResponse({ success: false, error: error.message });
@@ -433,48 +412,4 @@ function waitForTabLoaded(tabId, timeout = 30000) {
   });
 }
 
-async function handleFillTotpCode(request, sendResponse) {
-  try {
-    // 找到普通浏览器窗口（排除 Side Panel、DevTools 等）
-    const windows = await chrome.windows.getAll({
-      populate: true,
-      windowTypes: ['normal']
-    });
-    
-    let targetWindow = windows.find(w => w.focused) || windows[0];
-    if (!targetWindow) {
-      sendResponse({ success: false, error: '未找到浏览器窗口' });
-      return;
-    }
-    
-    const tab = targetWindow.tabs.find(t => t.active);
-    if (!tab || !tab.id) {
-      sendResponse({ success: false, error: '未找到活动标签页' });
-      return;
-    }
 
-    try {
-      await chrome.tabs.sendMessage(tab.id, {
-        action: 'fillTotpCode',
-        totpCode: request.totpCode
-      });
-    } catch (sendError) {
-      if (sendError.message && sendError.message.includes('Receiving end does not exist')) {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ['content.js']
-        });
-        await chrome.tabs.sendMessage(tab.id, {
-          action: 'fillTotpCode',
-          totpCode: request.totpCode
-        });
-      } else {
-        throw sendError;
-      }
-    }
-
-    sendResponse({ success: true });
-  } catch (error) {
-    sendResponse({ success: false, error: error.message });
-  }
-}

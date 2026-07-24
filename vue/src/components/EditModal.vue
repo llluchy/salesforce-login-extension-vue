@@ -218,12 +218,18 @@ const extractSecretFromOtpUri = (uri) => {
 }
 
 const handleSave = () => {
-  if (!form.value.alias || !form.value.username || !form.value.password) {
+  if (!form.value.alias) {
+    alert('请填写别名')
+    return
+  }
+
+  if (!form.value.username || !form.value.password) {
     alert('请填写必填字段')
     return
   }
 
   const now = Date.now()
+
   const envData = {
     id: props.env ? props.env.id : null,
     alias: form.value.alias,

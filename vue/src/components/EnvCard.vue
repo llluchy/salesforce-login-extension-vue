@@ -16,7 +16,7 @@
             <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="7"/><path d="M8 5v4"/><path d="M8 12h.01"/></svg>
           </span>
         </div>
-        <div class="env-username">{{ env.username || '未设置账号' }}</div>
+        <div class="env-username">{{ displayUsername }}</div>
         <div v-if="!hasCredentials" class="env-warning-hint">请完善账号密码</div>
       </div>
       
@@ -80,6 +80,10 @@ const showTotpCard = ref(false)
 
   const hasCredentials = computed(() => {
     return props.env.username && props.env.password
+  })
+
+  const displayUsername = computed(() => {
+    return props.env.username || '未设置账号'
   })
 
 const toggleTotpCard = async () => {
@@ -351,6 +355,42 @@ onBeforeUnmount(() => {
   padding: 2px;
   border-radius: 3px;
   flex-shrink: 0;
+}
+
+.env-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.env-badge-slave {
+  background: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #93c5fd;
+}
+
+.env-badge-shared {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+}
+
+.env-card-slave {
+  border-left: 3px solid #3b82f6;
+  background: linear-gradient(to right, #eff6ff 0%, #ffffff 30%);
+}
+
+.env-card-shared {
+  border-left: 3px solid #10b981;
+}
+
+.env-slave-hint {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 2px;
+  font-style: italic;
 }
 
 .env-actions {

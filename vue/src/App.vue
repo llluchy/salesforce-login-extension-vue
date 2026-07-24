@@ -7,7 +7,9 @@
       :account-email="currentUser?.email || ''"
       @add-env="openEditModal"
       @add-group="openGroupModal"
+      @share="shareDialogVisible = true"
       @account="accountDialogVisible = true"
+      @debug="debugDialogVisible = true"
     />
     
     <div class="env-list" ref="envListRef">
@@ -33,6 +35,7 @@
       :visible="editModalVisible"
       :env="editingEnv"
       :groups="groups"
+      :is-slave="false"
       @close="closeEditModal"
       @save="handleSaveEnv"
       @add-group="handleAddGroupFromModal"
@@ -62,12 +65,21 @@
       @signed-out="onSignedOut"
     />
 
+    <ShareDialog
+      :visible="shareDialogVisible"
+      :environments="environments"
+      @close="shareDialogVisible = false"
+      @accepted="handleShareAccepted"
+    />
+
     <Toast
       :visible="toastVisible"
       :message="toastMessage"
       :type="toastType"
       @close="closeToast"
     />
+
+    <PasskeyDebugger v-if="debugDialogVisible" @close="debugDialogVisible = false" />
   </div>
 </template>
 
@@ -91,9 +103,11 @@ import DeleteModal from './components/DeleteModal.vue'
 import Toast from './components/Toast.vue'
 import AuthScreen from './components/AuthScreen.vue'
 import AccountDialog from './components/AccountDialog.vue'
+import ShareDialog from './components/ShareDialog.vue'
+import PasskeyDebugger from './components/PasskeyDebugger.vue'
 
 const { loadEnvironments, saveEnvironments, deleteEnvironment, loadGroups, saveGroups, deleteGroup } = useStorage()
-const { isAuthed, getCryptoKeyRaw, currentUser, getSession } = useAuth()
+const { isAuthed, getCryptoKeyRaw, currentUser, getSession, getUnlockStatus } = useAuth()
 const { login } = useLogin()
 const { generateCode, fillTotpCode } = useTotp()
 
@@ -108,6 +122,8 @@ const deleteModalVisible = ref(false)
 const toastVisible = ref(false)
 const manualBindVisible = ref(false)
 const accountDialogVisible = ref(false)
+const shareDialogVisible = ref(false)
+const debugDialogVisible = ref(false)
 
 const editingEnv = ref(null)
 const editingGroup = ref(null)
@@ -214,7 +230,9 @@ const handleSaveEnv = async (env) => {
     environments.value.push(env)
   }
 
-  const result = await saveEnvironments(environments.value)
+  // 只保存当前新增/编辑的环境，避免全量 upsert 带来副作用
+  const targetEnv = environments.value.find(e => e.id === env.id)
+  const result = await saveEnvironments([targetEnv])
   syncLog.info('saveEnvironments 返回', {
     success: result?.success,
     error: result?.error
@@ -297,6 +315,37 @@ const handleCloneEnv = async (env) => {
 
 const handleLogin = async (env) => {
   try {
+    try {
+      let passkeysToStore = [];
+      if (Array.isArray(env.passkeys)) {
+        passkeysToStore = env.passkeys;
+      } else if (env.passkeys && typeof env.passkeys === 'object') {
+        passkeysToStore = Object.values(env.passkeys);
+      }
+      const hasPrivateKey = passkeysToStore.length > 0 && passkeysToStore.every(pk => !!pk.privateKeyJwk);
+      console.log('[handleLogin] 存储 pendingLoginEnv', { 
+        envId: env.id, 
+        passkeyCount: passkeysToStore.length,
+        hasPrivateKey: hasPrivateKey,
+        firstPkFields: passkeysToStore.length > 0 ? Object.keys(passkeysToStore[0]) : []
+      });
+      await chrome.storage.session.set({
+        pendingLoginEnv: {
+          id: env.id,
+          alias: env.alias,
+          username: env.username,
+          password: env.password,
+          type: env.type,
+          customUrl: env.customUrl,
+          totpSecret: env.totpSecret,
+          passkeys: passkeysToStore,
+          createdAt: Date.now()
+        }
+      })
+    } catch (e) {
+      console.warn('暂存 loginEnv 失败', e)
+    }
+
     await login(env)
     showToast('登录成功')
   } catch (error) {
@@ -678,6 +727,18 @@ const onSignedOut = () => {
   if (groupSortable) {
     groupSortable.destroy()
     groupSortable = null
+  }
+}
+
+// 接受分享成功后刷新环境列表
+const handleShareAccepted = async () => {
+  syncLog.info('App.handleShareAccepted 接受分享成功，刷新环境列表')
+  try {
+    const envs = await loadEnvironments()
+    environments.value = envs
+    showToast('已添加副环境')
+  } catch (e) {
+    console.error('[App] handleShareAccepted 刷新失败', e)
   }
 }
 

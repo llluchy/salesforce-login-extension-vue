@@ -219,13 +219,24 @@ export async function decryptField(ciphertext, key) {
   const iv = base64ToBytes(parsed.iv)
   const ct = base64ToBytes(parsed.ct)
 
-  const decrypted = await subtle.decrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    ct
-  )
-
-  return textDecoder.decode(decrypted)
+  try {
+    const decrypted = await subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      ct
+    )
+    return textDecoder.decode(decrypted)
+  } catch (e) {
+    console.error('[decryptField] 解密失败', {
+      ivLength: iv.length,
+      ctLength: ct.length,
+      keyAlgorithm: key?.algorithm?.name,
+      keyLength: key?.algorithm?.length,
+      errorName: e.name,
+      errorMessage: e.message
+    })
+    throw new Error('解密失败：密钥不匹配或数据损坏')
+  }
 }
 
 // ============================================
@@ -251,6 +262,7 @@ export async function decryptJson(ciphertext, key) {
 // ============================================
 // 加密整个 Environment 对象
 // 仅加密敏感字段，非敏感字段保留明文
+// 统一使用 userKey 加密
 // ============================================
 export async function encryptEnv(env, key, userId) {
   if (!env) return null
@@ -261,10 +273,9 @@ export async function encryptEnv(env, key, userId) {
     sort_order: env.sort_order || env.sortOrder || 0
   }
 
-  // 必须显式写入 user_id（RLS 策略 auth.uid() = user_id 要求）
-  if (userId) encrypted.user_id = userId
+  if (!userId) throw new Error('user_id 为空，无法保存环境')
+  encrypted.user_id = userId
 
-  // 敏感字段加密
   encrypted.username = await encryptField(env.username || '', key)
   encrypted.password = await encryptField(env.password || '', key)
   encrypted.custom_url = env.custom_url ? await encryptField(env.custom_url, key) : (env.customUrl ? await encryptField(env.customUrl, key) : null)
@@ -273,12 +284,10 @@ export async function encryptEnv(env, key, userId) {
     ? await encryptJson(env.passkeys, key)
     : '[]'
 
-  // ID（前端已生成 UUID，直接保留；编辑时保留原 ID）
   if (env.id) {
     encrypted.id = env.id
   }
 
-  // 时间戳（保留原值，用于编辑场景）
   if (env.created_at) encrypted.created_at = env.created_at
   else if (env.createdAt) encrypted.created_at = new Date(env.createdAt).toISOString()
   if (env.updated_at) encrypted.updated_at = env.updated_at
@@ -292,6 +301,19 @@ export async function encryptEnv(env, key, userId) {
 // ============================================
 export async function decryptEnv(row, key) {
   if (!row) return null
+  let passkeys = []
+  try {
+    if (row.passkeys && row.passkeys !== '[]') {
+      if (typeof row.passkeys === 'string') {
+        passkeys = await decryptJson(row.passkeys, key) || []
+      } else if (Array.isArray(row.passkeys)) {
+        passkeys = row.passkeys
+      }
+    }
+  } catch (e) {
+    console.warn('[decryptEnv] passkeys 解密失败，回退为空数组', e.message)
+    passkeys = []
+  }
   return {
     id: row.id,
     alias: row.alias || '',
@@ -301,9 +323,7 @@ export async function decryptEnv(row, key) {
     customUrl: row.custom_url ? await decryptField(row.custom_url, key) : '',
     groupId: row.group_id || 'ungrouped',
     totpSecret: row.totp_secret ? await decryptField(row.totp_secret, key) : '',
-    passkeys: (row.passkeys && row.passkeys !== '[]')
-      ? await decryptJson(row.passkeys, key)
-      : [],
+    passkeys: Array.isArray(passkeys) ? passkeys : [],
     sortOrder: row.sort_order || 0,
     createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
     updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now()
@@ -348,69 +368,54 @@ export function decryptGroup(row) {
 }
 
 // ============================================
-// 加密 Passkey Credential 对象
-// 仅 privateKeyJwk / publicKeyJwk 加密，其余明文
+// 分享功能：分享码派生密钥 + 环境数据加解密
 // ============================================
-export async function encryptPasskeyCredential(cred, key, userId) {
-  if (!cred) return null
-  const encrypted = {
-    credential_id: cred.credentialId || cred.credential_id,
-    rp_id: cred.rpId || cred.rp_id || 'salesforce.com',
-    user_handle: cred.userId || cred.user_handle || '',
-    user_name: cred.userName || cred.user_name || '',
-    user_display_name: cred.userDisplayName || cred.user_display_name || '',
-    sign_count: cred.signCount || cred.sign_count || 0
-  }
-  // 必须显式写入 user_id（RLS 策略 auth.uid() = user_id 要求）
-  if (userId) encrypted.user_id = userId
-  encrypted.private_key_jwk = await encryptJson(cred.privateKeyJwk || cred.private_key_jwk, key)
-  encrypted.public_key_jwk = cred.publicKeyJwk || cred.public_key_jwk
-    ? await encryptJson(cred.publicKeyJwk || cred.public_key_jwk, key)
-    : null
 
-  if (cred.id) {
-    encrypted.id = cred.id
-  }
-
-  return encrypted
+/**
+ * 用分享码+验证码派生临时密钥（A 和 B 派生出的密钥相同）
+ * 用于加密/解密 env_shares 中的环境数据
+ */
+export async function deriveShareKey(shareCode, verifyCode) {
+  const combined = shareCode + verifyCode
+  const fixedSalt = new Uint8Array(16)
+  return await deriveKey(combined, fixedSalt, true)
 }
 
-// ============================================
-// 解密 Passkey Credential 行
-// ============================================
-export async function decryptPasskeyCredential(row, key) {
-  if (!row) return null
-  return {
-    id: row.id,
-    credentialId: row.credential_id,
-    rpId: row.rp_id,
-    privateKeyJwk: row.private_key_jwk ? await decryptJson(row.private_key_jwk, key) : null,
-    publicKeyJwk: row.public_key_jwk ? await decryptJson(row.public_key_jwk, key) : null,
-    userId: row.user_handle || '',
-    userName: row.user_name || '',
-    userDisplayName: row.user_display_name || '',
-    envId: null, // 引用关系存在 environments.passkeys 中
-    signCount: row.sign_count || 0,
-    createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now()
+/**
+ * 用分享密钥加密完整环境数据（明文 env 对象 → JSON 密文字符串）
+ * 用于 createShare 时存入 env_shares
+ */
+export async function encryptEnvForShare(env, shareKey) {
+  const payload = {
+    alias: env.alias || '',
+    type: env.type || 'production',
+    username: env.username || '',
+    password: env.password || '',
+    customUrl: env.customUrl || env.custom_url || '',
+    totpSecret: env.totpSecret || env.totp_secret || '',
+    passkeys: env.passkeys || []
   }
+  return await encryptJson(payload, shareKey)
 }
 
-// ============================================
-// 修改密码时的批量重加密工具
-// 输入密文行数组 + 旧密钥 + 新密钥，返回新密文行数组
-// ============================================
-export async function reencryptEnvs(envRows, oldKey, newKey) {
-  // 1. 用旧密钥解密
-  const plaintextEnvs = await Promise.all(envRows.map(r => decryptEnv(r, oldKey)))
-  // 2. 用新密钥重新加密（保留原 user_id，RLS 需要）
-  const newRows = await Promise.all(plaintextEnvs.map((e, i) => encryptEnv(e, newKey, envRows[i].user_id)))
-  // 3. 保留原 id
-  return newRows.map((row, i) => ({ ...row, id: envRows[i].id }))
+/**
+ * 用分享密钥解密环境数据（env_shares 中的密文 → 明文 env 对象）
+ * 用于 acceptShare 时获取原始环境数据
+ */
+export async function decryptEnvFromShare(encryptedEnv, shareKey) {
+  return await decryptJson(encryptedEnv, shareKey)
 }
 
-export async function reencryptPasskeys(pkRows, oldKey, newKey) {
-  const plaintext = await Promise.all(pkRows.map(r => decryptPasskeyCredential(r, oldKey)))
-  // 保留原 user_id，RLS 需要
-  const newRows = await Promise.all(plaintext.map((c, i) => encryptPasskeyCredential(c, newKey, pkRows[i].user_id)))
-  return newRows.map((row, i) => ({ ...row, id: pkRows[i].id }))
+/**
+ * 重加密所有环境数据（改密码时调用）
+ * @param {Array} rows - environments 表的行数组（密文）
+ * @param {CryptoKey} oldUserKey - 旧用户密钥
+ * @param {CryptoKey} newUserKey - 新用户密钥
+ * @returns {Array} 更新后的行数组（密文）
+ */
+export async function reencryptEnvs(rows, oldUserKey, newUserKey) {
+  return Promise.all(rows.map(async (row) => {
+    const env = await decryptEnv(row, oldUserKey)
+    return await encryptEnv(env, newUserKey, row.user_id)
+  }))
 }

@@ -22,54 +22,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  if (request.action === 'fillTotpCode') {
-    fillTotpCode(request.totpCode);
-    sendResponse({ success: true });
-    return true;
-  }
 });
-
-function fillTotpCode(totpCode) {
-  function tryFillTotp() {
-    const totpField = document.querySelector('#totpCode') ||
-      document.querySelector('input[name="totpCode"]') ||
-      document.querySelector('#emc') ||
-      document.querySelector('input[name="emc"]') ||
-      document.querySelector('input[autocomplete="one-time-code"]');
-
-    if (!totpField) {
-      return false;
-    }
-
-    const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-    nativeSet.call(totpField, totpCode);
-    totpField.dispatchEvent(new Event('input', { bubbles: true }));
-    totpField.dispatchEvent(new Event('change', { bubbles: true }));
-
-    const verifyButton = document.querySelector('#save') ||
-      document.querySelector('input[name="save"]') ||
-      document.querySelector('button[name="save"]') ||
-      document.querySelector('#verify');
-
-    if (verifyButton) {
-      setTimeout(() => verifyButton.click(), 300);
-    }
-
-    return true;
-  }
-
-  if (!tryFillTotp()) {
-    const observer = new MutationObserver(() => {
-      if (tryFillTotp()) {
-        observer.disconnect();
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    setTimeout(() => {
-      observer.disconnect();
-    }, 10000);
-  }
-}
 
 function startSelection() {
   if (overlayDiv) return;
@@ -351,6 +304,38 @@ function cropImage(dataUrl, x, y, width, height) {
           source: 'sf-extension',
           action: 'environmentsList',
           environments: []
+        }, '*');
+      }
+    }
+
+    // 获取待登录环境（包含 passkeys 私钥），用于直接登录流程
+    if (event.data.action === 'getPendingLoginEnv') {
+      try {
+        console.log('[Content] ④ 转发 getPendingLoginEnv 请求到 background', { rpId: event.data.rpId });
+        const response = await chrome.runtime.sendMessage({
+          action: 'getPendingLoginEnv',
+          rpId: event.data.rpId
+        });
+        console.log('[Content] ⑤ 收到 background 响应', {
+          success: response?.success,
+          hasLoginEnv: !!response?.loginEnv,
+          passkeysType: response?.loginEnv ? typeof response.loginEnv.passkeys : 'N/A',
+          passkeysIsArray: response?.loginEnv ? Array.isArray(response.loginEnv.passkeys) : 'N/A',
+          passkeysLength: response?.loginEnv && Array.isArray(response.loginEnv.passkeys) ? response.loginEnv.passkeys.length : 0
+        });
+        window.postMessage({
+          source: 'sf-extension',
+          action: 'pendingLoginEnvLoaded',
+          loginEnv: response?.loginEnv || null,
+          error: response?.error || null
+        }, '*');
+      } catch (e) {
+        console.error('[Content] ⑤ getPendingLoginEnv 异常', e);
+        window.postMessage({
+          source: 'sf-extension',
+          action: 'pendingLoginEnvLoaded',
+          loginEnv: null,
+          error: e.message
         }, '*');
       }
     }

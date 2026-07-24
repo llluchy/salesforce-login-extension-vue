@@ -135,10 +135,24 @@ export function useStorage() {
 
       if (error) throw new Error('Supabase 查询失败：' + error.message)
 
-      const envs = await Promise.all((data || []).map(row => decryptEnv(row, key)))
-      log('读取成功', { count: envs.length, ids: envs.map(e => e.id) })
+      const { decryptEnv } = await import('../utils/crypto')
 
-      // 写入本地缓存
+      const envs = []
+      for (const row of data || []) {
+        try {
+          const env = await decryptEnv(row, key)
+          envs.push(env)
+        } catch (decryptErr) {
+          console.error('[Storage] 环境解密失败', {
+            id: row.id,
+            error: decryptErr.message
+          })
+          logError(`环境解密失败，跳过: ${row.id}`, decryptErr.message)
+        }
+      }
+
+      log('读取成功', { count: envs.length, total: data?.length, ids: envs.map(e => e.id) })
+
       await cacheSet(STORAGE_KEY, envs)
       return envs
     } catch (e) {
@@ -159,22 +173,23 @@ export function useStorage() {
   const saveEnvironments = async (envs) => {
     log('saveEnvironments', { count: envs?.length || 0 })
     const supabase = getSupabase()
-    const key = getCryptoKey()
+    const userKey = getCryptoKey()
 
     if (!supabase) return { success: false, error: 'Supabase 未初始化' }
-    if (!key) return { success: false, error: '加密密钥未派生（未解锁）' }
+    if (!userKey) return { success: false, error: '加密密钥未派生（未解锁）' }
 
     const envList = Array.isArray(envs) ? envs : []
 
-    // 1. 加密 + upsert
     const rowsToUpsert = []
     for (let i = 0; i < envList.length; i++) {
       const env = envList[i]
-      env.sortOrder = i
+      if (env.sortOrder === undefined || env.sortOrder === null) {
+        env.sortOrder = i
+      }
       env.updatedAt = Date.now()
       if (!env.createdAt) env.createdAt = Date.now()
 
-      const encrypted = await encryptEnv(env, key, getUserId())
+      const encrypted = await encryptEnv(env, userKey, getUserId())
       rowsToUpsert.push(encrypted)
     }
 
@@ -197,8 +212,18 @@ export function useStorage() {
       }
     }
 
-    // 3. 更新本地缓存
-    await cacheSet(STORAGE_KEY, envList)
+    // 3. 更新本地缓存（合并到现有缓存，避免单条保存时覆盖其他环境）
+    const cached = await cacheGet(STORAGE_KEY)
+    const merged = Array.isArray(cached) ? [...cached] : []
+    for (const env of envList) {
+      const idx = merged.findIndex(e => e.id === env.id)
+      if (idx !== -1) {
+        merged[idx] = env
+      } else {
+        merged.push(env)
+      }
+    }
+    await cacheSet(STORAGE_KEY, merged)
     log('保存成功', { count: envList.length })
     return { success: true }
   }
@@ -329,26 +354,35 @@ export function useStorage() {
   }
 
   // ----------------------------------------
-  // Passkey 凭证（独立表，供 background.js 通过消息请求）
+  // Passkey 凭证（统一存储在 environments.passkeys 中）
   // ----------------------------------------
 
   /**
-   * 加载所有 Passkey 凭证（解密后）
+   * 加载所有 Passkey 凭证（从 environments.passkeys 聚合）
    */
   const loadPasskeyCredentials = async () => {
     log('loadPasskeyCredentials')
-    const supabase = getSupabase()
-    const key = getCryptoKey()
-    if (!supabase || !key) return []
-
     try {
-      const { data, error } = await supabase
-        .from('passkey_credentials')
-        .select('*')
-      if (error) throw new Error(error.message)
-
-      const { decryptPasskeyCredential } = await import('../utils/crypto')
-      const creds = await Promise.all((data || []).map(r => decryptPasskeyCredential(r, key)))
+      const envs = await loadEnvironments()
+      const creds = []
+      for (const env of envs) {
+        for (const pk of (env.passkeys || [])) {
+          if (pk.credentialId && pk.privateKeyJwk) {
+            creds.push({
+              credentialId: pk.credentialId,
+              rpId: pk.rpId,
+              privateKeyJwk: pk.privateKeyJwk,
+              publicKeyJwk: pk.publicKeyJwk,
+              userId: pk.userId,
+              userName: pk.userName,
+              userDisplayName: pk.userDisplayName,
+              envId: env.id,
+              signCount: pk.signCount || 0,
+              createdAt: pk.createdAt || Date.now()
+            })
+          }
+        }
+      }
       log('读取 Passkey 凭证成功', { count: creds.length })
       return creds
     } catch (e) {
@@ -358,24 +392,40 @@ export function useStorage() {
   }
 
   /**
-   * 保存单个 Passkey 凭证（加密后 upsert）
+   * 保存单个 Passkey 凭证到对应环境的 passkeys 数组
    */
   const savePasskeyCredential = async (cred) => {
-    log('savePasskeyCredential', { credentialId: cred?.credentialId })
-    const supabase = getSupabase()
-    const key = getCryptoKey()
-    if (!supabase) return { success: false, error: 'Supabase 未初始化' }
-    if (!key) return { success: false, error: '加密密钥未派生' }
+    log('savePasskeyCredential', { credentialId: cred?.credentialId, envId: cred?.envId })
+    if (!cred?.envId) return { success: false, error: '缺少 envId' }
 
     try {
-      const { encryptPasskeyCredential } = await import('../utils/crypto')
-      const encrypted = await encryptPasskeyCredential(cred, key, getUserId())
-      const { error } = await supabase
-        .from('passkey_credentials')
-        .upsert(encrypted, { onConflict: 'credential_id' })
-      if (error) throw new Error(error.message)
+      const envs = await loadEnvironments()
+      const idx = envs.findIndex(e => e.id === cred.envId)
+      if (idx === -1) return { success: false, error: '环境不存在' }
+
+      const env = envs[idx]
+      env.passkeys = env.passkeys || []
+      const pkIdx = env.passkeys.findIndex(pk => pk.credentialId === cred.credentialId)
+      const pk = {
+        credentialId: cred.credentialId,
+        rpId: cred.rpId,
+        privateKeyJwk: cred.privateKeyJwk,
+        publicKeyJwk: cred.publicKeyJwk || null,
+        userId: cred.userId || '',
+        userName: cred.userName,
+        userDisplayName: cred.userDisplayName,
+        signCount: cred.signCount || 0,
+        createdAt: cred.createdAt || Date.now()
+      }
+      if (pkIdx !== -1) {
+        env.passkeys[pkIdx] = pk
+      } else {
+        env.passkeys.push(pk)
+      }
+
+      const result = await saveEnvironments(envs)
       log('保存 Passkey 凭证成功')
-      return { success: true }
+      return result
     } catch (e) {
       logError('保存 Passkey 凭证失败', e)
       return { success: false, error: e.message }
@@ -383,26 +433,30 @@ export function useStorage() {
   }
 
   /**
-   * 按 credentialId 查询单个 Passkey 凭证（解密后）
-   * 供 background.js 通过消息中转调用
+   * 按 credentialId 查询单个 Passkey 凭证
    */
   const getPasskeyCredentialById = async (credentialId) => {
     log('getPasskeyCredentialById', { credentialId })
-    const supabase = getSupabase()
-    const key = getCryptoKey()
-    if (!supabase || !key) return null
-
     try {
-      const { data, error } = await supabase
-        .from('passkey_credentials')
-        .select('*')
-        .eq('credential_id', credentialId)
-        .maybeSingle()
-      if (error) throw new Error(error.message)
-      if (!data) return null
-
-      const { decryptPasskeyCredential } = await import('../utils/crypto')
-      return await decryptPasskeyCredential(data, key)
+      const envs = await loadEnvironments()
+      for (const env of envs) {
+        const pk = (env.passkeys || []).find(p => p.credentialId === credentialId)
+        if (pk) {
+          return {
+            credentialId: pk.credentialId,
+            rpId: pk.rpId,
+            privateKeyJwk: pk.privateKeyJwk,
+            publicKeyJwk: pk.publicKeyJwk,
+            userId: pk.userId,
+            userName: pk.userName,
+            userDisplayName: pk.userDisplayName,
+            envId: env.id,
+            signCount: pk.signCount || 0,
+            createdAt: pk.createdAt || Date.now()
+          }
+        }
+      }
+      return null
     } catch (e) {
       logError('查询 Passkey 凭证失败', e)
       return null
@@ -410,24 +464,32 @@ export function useStorage() {
   }
 
   /**
-   * 按 rpId 过滤 Passkey 凭证（解密后）
-   * 供 background.js 在 WebAuthn get 流程中使用
+   * 按 rpId 过滤 Passkey 凭证
    */
   const getPasskeyCredentialsByRpId = async (rpId) => {
     log('getPasskeyCredentialsByRpId', { rpId })
-    const supabase = getSupabase()
-    const key = getCryptoKey()
-    if (!supabase || !key) return []
-
     try {
-      const { data, error } = await supabase
-        .from('passkey_credentials')
-        .select('*')
-        .eq('rp_id', rpId)
-      if (error) throw new Error(error.message)
-
-      const { decryptPasskeyCredential } = await import('../utils/crypto')
-      return await Promise.all((data || []).map(r => decryptPasskeyCredential(r, key)))
+      const envs = await loadEnvironments()
+      const creds = []
+      for (const env of envs) {
+        for (const pk of (env.passkeys || [])) {
+          if (pk.rpId === rpId && pk.credentialId && pk.privateKeyJwk) {
+            creds.push({
+              credentialId: pk.credentialId,
+              rpId: pk.rpId,
+              privateKeyJwk: pk.privateKeyJwk,
+              publicKeyJwk: pk.publicKeyJwk,
+              userId: pk.userId,
+              userName: pk.userName,
+              userDisplayName: pk.userDisplayName,
+              envId: env.id,
+              signCount: pk.signCount || 0,
+              createdAt: pk.createdAt || Date.now()
+            })
+          }
+        }
+      }
+      return creds
     } catch (e) {
       logError('按 rpId 查询 Passkey 凭证失败', e)
       return []
@@ -438,17 +500,27 @@ export function useStorage() {
    * 更新 Passkey 凭证的 signCount（防重放）
    */
   const updatePasskeySignCount = async (credentialId, newSignCount) => {
-    const supabase = getSupabase()
-    if (!supabase) return { success: false }
-    const { error } = await supabase
-      .from('passkey_credentials')
-      .update({ sign_count: newSignCount })
-      .eq('credential_id', credentialId)
-    if (error) {
-      logWarn('更新 signCount 失败', error.message)
-      return { success: false, error: error.message }
+    try {
+      const envs = await loadEnvironments()
+      let found = false
+      for (const env of envs) {
+        const pk = (env.passkeys || []).find(p => p.credentialId === credentialId)
+        if (pk) {
+          pk.signCount = newSignCount
+          found = true
+          break
+        }
+      }
+      if (!found) {
+        logWarn('更新 signCount 失败', '未找到 credentialId: ' + credentialId)
+        return { success: false, error: '未找到凭证' }
+      }
+      await saveEnvironments(envs)
+      return { success: true }
+    } catch (e) {
+      logWarn('更新 signCount 失败', e.message)
+      return { success: false, error: e.message }
     }
-    return { success: true }
   }
 
   /**

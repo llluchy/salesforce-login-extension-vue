@@ -140,42 +140,118 @@
     }
 
     try {
-      const storedCredentials = await getStoredCredentials(rpId);
-      const environments = await getEnvironments();
+      // 获取待登录环境（完整原始数据，不做任何解析）
+      const pendingEnv = await requestPendingLoginEnv(rpId);
+      console.log('[Page] ⑧ 最终使用处拿到 pendingEnv', {
+        hasEnv: !!pendingEnv,
+        envId: pendingEnv?.id,
+        passkeysType: pendingEnv ? typeof pendingEnv.passkeys : 'N/A',
+        passkeysIsArray: pendingEnv ? Array.isArray(pendingEnv.passkeys) : 'N/A',
+        passkeysLength: pendingEnv && Array.isArray(pendingEnv.passkeys) ? pendingEnv.passkeys.length : 0
+      });
 
-      // 显示浮层 UI 让用户选择环境
-      const selectedEnv = await PasskeyUI.showSelector('login', environments, rpId);
+      // ★ 最终使用处：第一次解析 passkeys（用于 storedCredentials）
+      const storedCredentials = (pendingEnv && Array.isArray(pendingEnv.passkeys)) ? pendingEnv.passkeys : [];
+
+      // 构造 displayEnvs（直接透传原始 passkeys，不做转换）
+      const displayEnvs = pendingEnv
+        ? [{
+            id: pendingEnv.id || 'pending',
+            alias: pendingEnv.alias,
+            type: pendingEnv.type || 'production',
+            username: pendingEnv.username,
+            passkeys: pendingEnv.passkeys,
+            _isPending: true
+          }]
+        : [];
+
+      console.log('[Page] ⑨ 调用 PasskeyUI.showSelector', { displayEnvCount: displayEnvs.length });
+      const selectedEnv = await PasskeyUI.showSelector('login', displayEnvs, rpId);
+      console.log('[Page] ⑩ PasskeyUI.showSelector 返回', { hasSelected: !!selectedEnv });
 
       if (selectedEnv) {
         const origin = window.location.origin;
-        const result = await WebAuthnAuthenticator.getAssertion(
-          {
-            rpId: rpId,
-            challenge: arrayBufferToBase64(options.publicKey.challenge),
-            allowCredentials: (options.publicKey.allowCredentials || []).map(c => ({
-              id: typeof c.id === 'string' ? c.id : arrayBufferToBase64(c.id),
-              type: c.type
-            }))
-          },
-          origin,
-          storedCredentials
-        );
+        // ★ 最终使用处：第二次解析 passkeys（确保 getAssertion 调用时用的是数组）
+        const finalCredentials = Array.isArray(selectedEnv.passkeys) ? selectedEnv.passkeys : storedCredentials;
+        console.log('[Page] ⑪ 调用 getAssertion', {
+          rpId,
+          storedCredentialCount: finalCredentials.length,
+          storedCredentialIds: finalCredentials.map(c => c.credentialId),
+          allowCredentials: (options.publicKey.allowCredentials || []).map(c => ({
+            id: typeof c.id === 'string' ? c.id : arrayBufferToBase64(c.id),
+            type: c.type
+          }))
+        });
+        try {
+          const result = await WebAuthnAuthenticator.getAssertion(
+            {
+              rpId: rpId,
+              challenge: arrayBufferToBase64(options.publicKey.challenge),
+              allowCredentials: (options.publicKey.allowCredentials || []).map(c => ({
+                id: typeof c.id === 'string' ? c.id : arrayBufferToBase64(c.id),
+                type: c.type
+              }))
+            },
+            origin,
+            finalCredentials
+          );
 
-        if (result) {
-          window.postMessage({
-            source: 'sf-page-world',
-            action: 'updateCredential',
-            credential: result.updatedCredential
-          }, '*');
-          return result.credential;
+          console.log('[Page] ⑫ getAssertion 结果', { hasResult: !!result });
+          if (result) {
+            window.postMessage({
+              source: 'sf-page-world',
+              action: 'updateCredential',
+              credential: result.updatedCredential
+            }, '*');
+            return result.credential;
+          }
+        } catch (e) {
+          console.error('[Page] ⑫ getAssertion 异常', e);
         }
       }
     } catch (e) {
-      // 静默失败
+      console.error('[Page] navigator.credentials.get 异常', e);
     }
 
     return originalGet(options);
   };
+
+  // 获取待登录环境（包含已解密的 passkeys 私钥）
+  function requestPendingLoginEnv(rpId) {
+    console.log('[Page] ⑥ 发起 getPendingLoginEnv 请求', { rpId });
+    return new Promise((resolve) => {
+      const handler = (event) => {
+        if (!event.data || event.data.source !== 'sf-extension') return;
+        if (event.data.action !== 'pendingLoginEnvLoaded') return;
+        const env = event.data.loginEnv;
+        console.log('[Page] ⑦ 收到 pendingLoginEnvLoaded', {
+          hasEnv: !!env,
+          envId: env?.id,
+          passkeysType: env ? typeof env.passkeys : 'N/A',
+          passkeysIsArray: env ? Array.isArray(env.passkeys) : 'N/A',
+          passkeysLength: env && Array.isArray(env.passkeys) ? env.passkeys.length : 0,
+          error: event.data.error
+        });
+        window.removeEventListener('message', handler);
+        // 直接透传原始 env，不做任何解析，最终使用处再解析
+        resolve(env || null);
+      };
+      window.addEventListener('message', handler);
+
+      window.postMessage({
+        source: 'sf-page-world',
+        action: 'getPendingLoginEnv',
+        rpId: rpId
+      }, '*');
+
+      // 超时保护
+      setTimeout(() => {
+        console.warn('[Page] ⑦ requestPendingLoginEnv 超时（3秒）');
+        window.removeEventListener('message', handler);
+        resolve(null);
+      }, 3000);
+    });
+  }
 
   // ========== 拦截注册请求（create）==========
   navigator.credentials.create = async function(options) {
@@ -236,6 +312,7 @@
           envId: selectedEnv.id,
           passkey: {
             id: 'pk_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+            credentialId: result.credential.id,
             rpId: rpId,
             challenge: arrayBufferToBase64(options.publicKey.challenge),
             createdAt: Date.now()

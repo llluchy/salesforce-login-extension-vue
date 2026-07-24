@@ -163,6 +163,64 @@ export function initPasskeyBridge() {
       return { environments: await loadEnvironments() }
     },
 
+    'bg:getPendingLoginEnv': async (msg) => {
+      console.log('[Bridge] ① 收到 getPendingLoginEnv 请求', { rpId: msg?.rpId })
+      const authErr = requireAuth()
+      if (authErr) {
+        console.warn('[Bridge] ① 鉴权失败', authErr)
+        return authErr
+      }
+      try {
+        const result = await chrome.storage.session.get(['pendingLoginEnv'])
+        const env = result.pendingLoginEnv
+        console.log('[Bridge] ② 从 session storage 读取到 env', {
+          hasEnv: !!env,
+          envId: env?.id,
+          passkeysType: env ? typeof env.passkeys : 'N/A',
+          passkeysIsArray: env ? Array.isArray(env.passkeys) : 'N/A',
+          passkeysLength: env && Array.isArray(env.passkeys) ? env.passkeys.length : 0
+        })
+        if (!env) {
+          console.log('[Bridge] ③ 无待登录数据，返回错误')
+          return { success: false, error: '无待登录数据' }
+        }
+
+        // 关键修复：env.passkeys 可能只有摘要字段（无 privateKeyJwk），
+        // 也可能是对象格式（{0: {...}}）而不是数组，需要先规范化
+        const passkeysArr = Array.isArray(env.passkeys)
+          ? env.passkeys
+          : (env.passkeys && typeof env.passkeys === 'object')
+            ? Object.values(env.passkeys)
+            : []
+
+        let fullPasskeys = []
+        if (passkeysArr.length > 0) {
+          if (passkeysArr[0].privateKeyJwk) {
+            // 已有完整凭证，直接使用
+            fullPasskeys = passkeysArr
+          } else {
+            // 只有摘要，需要从完整环境中取含私钥的凭证
+            const allEnvs = await loadEnvironments()
+            const fullEnv = allEnvs.find(e => e.id === env.id)
+            if (fullEnv && Array.isArray(fullEnv.passkeys)) {
+              fullPasskeys = fullEnv.passkeys
+            }
+          }
+        }
+        console.log('[Bridge] ②-补全 完整 passkeys 数', {
+          count: fullPasskeys.length,
+          hasPrivateKey: fullPasskeys.length > 0 ? !!fullPasskeys[0].privateKeyJwk : false
+        })
+
+        const fullEnv = { ...env, passkeys: fullPasskeys }
+        console.log('[Bridge] ③ 成功，返回补全后的 env')
+        return { success: true, loginEnv: fullEnv }
+      } catch (e) {
+        console.error('[Bridge] ③ 失败', e)
+        return { success: false, error: e.message }
+      }
+    },
+
     'bg:saveNewEnvironment': async (msg) => {
       const authErr = requireAuth()
       if (authErr) return authErr

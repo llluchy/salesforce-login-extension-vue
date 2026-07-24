@@ -363,6 +363,20 @@ async function fetchUserSalt(userId) {
       }
     }
 
+    // 尝试 3：JSON Buffer 格式（BYTEA 列被 Supabase 序列化为 {"type":"Buffer","data":[...]}）
+    if (raw.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(raw)
+        if (parsed.type === 'Buffer' && Array.isArray(parsed.data)) {
+          const bytes = new Uint8Array(parsed.data)
+          log('salt 以 JSON Buffer 格式解码成功', { length: bytes.length })
+          return bytes
+        }
+      } catch (jsonErr) {
+        logError('salt JSON Buffer 解码也失败', jsonErr)
+      }
+    }
+
     logError('salt 解码失败', {
       saltPreview: raw.substring(0, 40),
       length: raw.length,
@@ -747,7 +761,7 @@ async function unlockWithPassword(password) {
 /**
  * 修改密码（关键流程，避免数据丢失）
  * 1. 用旧密码派生旧密钥
- * 2. 拉所有 environments / passkey_credentials（密文）
+ * 2. 拉所有 environments（密文，含 passkeys）
  * 3. 用旧密钥解密 → 用新密码派生新密钥 → 重新加密
  * 4. 批量 upsert 新密文到 Supabase
  * 5. 调用 supabase.auth.updateUser({password}) 修改 auth 密码
@@ -774,43 +788,33 @@ async function changePassword({ oldPassword, newPassword }) {
     }
     const oldKey = await deriveKey(oldPassword, _saltBytes, true)
 
-    // 2. 拉取所有密文数据（仅未删除的环境）
+    // 2. 拉取所有环境数据
     const { data: envRows, error: envErr } = await supabase
-      .from('environments').select('*').eq('is_deleted', false)
-    if (envErr) throw new Error('拉取环境失败：' + envErr.message)
+      .from('environments')
+      .select('*')
+      .eq('user_id', currentUser.value.id)
+      .eq('is_deleted', false)
+    if (envErr) throw new Error('拉取 environments 失败：' + envErr.message)
 
-    const { data: pkRows, error: pkErr } = await supabase
-      .from('passkey_credentials').select('*')
-    if (pkErr) throw new Error('拉取 Passkey 凭证失败：' + pkErr.message)
-
-    // 3. 用旧密钥解密 → 新密钥重新加密
-    const { reencryptEnvs, reencryptPasskeys } = await import('../utils/crypto')
-    log('重加密', { envCount: envRows.length, pkCount: pkRows.length })
-
-    // 验证旧密码是否正确（用旧密钥试解密一条数据）
-    if (envRows.length > 0) {
+    // 3. 验证旧密码是否正确（用旧密钥试解密一条环境记录）
+    if (envRows && envRows.length > 0) {
       try {
-        const { decryptField } = await import('../utils/crypto')
-        await decryptField(envRows[0].password, oldKey)
+        const { decryptEnv } = await import('../utils/crypto')
+        await decryptEnv(envRows[0], oldKey)
       } catch (e) {
         throw new Error('旧密码不正确')
       }
     }
 
     const newKey = await deriveKey(newPassword, _saltBytes, true)
-    const newEnvRows = await reencryptEnvs(envRows, oldKey, newKey)
-    const newPkRows = await reencryptPasskeys(pkRows, oldKey, newKey)
 
-    // 4. 批量 upsert 新密文（关键：先写密文，再改 auth 密码）
-    if (newEnvRows.length > 0) {
+    // 4. 重加密所有环境数据
+    if (envRows && envRows.length > 0) {
+      const { reencryptEnvs } = await import('../utils/crypto')
+      const newEnvRows = await reencryptEnvs(envRows, oldKey, newKey)
       const { error: envUpdateErr } = await supabase
         .from('environments').upsert(newEnvRows, { onConflict: 'id' })
-      if (envUpdateErr) throw new Error('更新环境密文失败：' + envUpdateErr.message)
-    }
-    if (newPkRows.length > 0) {
-      const { error: pkUpdateErr } = await supabase
-        .from('passkey_credentials').upsert(newPkRows, { onConflict: 'id' })
-      if (pkUpdateErr) throw new Error('更新 Passkey 密文失败：' + pkUpdateErr.message)
+      if (envUpdateErr) throw new Error('更新 environments 失败：' + envUpdateErr.message)
     }
 
     // 5. 修改 auth 密码
@@ -855,37 +859,25 @@ async function reencryptAll(password) {
     const key = await deriveKey(password, _saltBytes, true)
 
     const { data: envRows, error: envErr } = await supabase
-      .from('environments').select('*').eq('is_deleted', false)
-    if (envErr) throw new Error('拉取环境失败：' + envErr.message)
+      .from('environments')
+      .select('*')
+      .eq('user_id', currentUser.value.id)
+      .eq('is_deleted', false)
+    if (envErr) throw new Error('拉取 environments 失败：' + envErr.message)
 
-    const { data: pkRows, error: pkErr } = await supabase
-      .from('passkey_credentials').select('*')
-    if (pkErr) throw new Error('拉取 Passkey 凭证失败：' + pkErr.message)
-
-    const { reencryptEnvs, reencryptPasskeys } = await import('../utils/crypto')
-    log('重加密数据量', { envCount: envRows.length, pkCount: pkRows.length })
-
-    if (envRows.length > 0) {
+    if (envRows && envRows.length > 0) {
       try {
-        const { decryptField } = await import('../utils/crypto')
-        await decryptField(envRows[0].password, key)
+        const { decryptEnv } = await import('../utils/crypto')
+        await decryptEnv(envRows[0], key)
       } catch (e) {
         throw new Error('密码不正确')
       }
-    }
 
-    const newEnvRows = await reencryptEnvs(envRows, key, key)
-    const newPkRows = await reencryptPasskeys(pkRows, key, key)
-
-    if (newEnvRows.length > 0) {
+      const { reencryptEnvs } = await import('../utils/crypto')
+      const newEnvRows = await reencryptEnvs(envRows, key, key)
       const { error: envUpdateErr } = await supabase
         .from('environments').upsert(newEnvRows, { onConflict: 'id' })
-      if (envUpdateErr) throw new Error('更新环境密文失败：' + envUpdateErr.message)
-    }
-    if (newPkRows.length > 0) {
-      const { error: pkUpdateErr } = await supabase
-        .from('passkey_credentials').upsert(newPkRows, { onConflict: 'id' })
-      if (pkUpdateErr) throw new Error('更新 Passkey 密文失败：' + pkUpdateErr.message)
+      if (envUpdateErr) throw new Error('更新 environments 失败：' + envUpdateErr.message)
     }
 
     cryptoKey.value = key
@@ -956,6 +948,7 @@ export function useAuth() {
     resetPassword,
     getSalt,
     getCryptoKeyRaw,
-    getDailyLoginStatus
+    getDailyLoginStatus,
+    getUnlockStatus
   }
 }

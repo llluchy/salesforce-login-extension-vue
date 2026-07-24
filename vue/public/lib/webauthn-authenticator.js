@@ -163,10 +163,13 @@ const WebAuthnAuthenticator = {
     if (allowCredentials.length > 0) {
       for (const allowCred of allowCredentials) {
         const credId = typeof allowCred === 'string' ? allowCred : allowCred.id;
-        matchedCredential = storedCredentials.find(c => c.credentialId === credId);
+        // 优先用 credentialId 精确匹配
+        matchedCredential = storedCredentials.find(c => c.credentialId && c.credentialId === credId);
         if (matchedCredential) break;
       }
-    } else {
+    }
+    // 如果精确匹配失败，回退到 rpId 匹配（兼容旧数据）
+    if (!matchedCredential) {
       matchedCredential = storedCredentials.find(c => c.rpId === rpId);
     }
 

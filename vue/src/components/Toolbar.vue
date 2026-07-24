@@ -14,8 +14,16 @@
       <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 6h16v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/><path d="M6 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="9" x2="10" y2="14"/><line x1="7.5" y1="11.5" x2="12.5" y2="11.5"/></svg>
       <span>创建分组</span>
     </button>
+    <button class="btn-action btn-share" @click="$emit('share')" title="环境分享">
+      <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="2"/><circle cx="14" cy="6" r="2"/><circle cx="14" cy="14" r="2"/><line x1="8" y1="11" x2="12" y2="7"/><line x1="8" y1="13" x2="12" y2="13"/></svg>
+      <span>分享</span>
+    </button>
     <button class="btn-action btn-account" @click="$emit('account')" title="账户管理">
       <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="7" r="3"/><path d="M3 17a7 7 0 0114 0"/></svg>
+    </button>
+    <button class="btn-action btn-debug" @click="$emit('debug')" title="Passkey 调试器">
+      <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="3"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.93 4.93l1.41 1.41M13.66 13.66l1.41 1.41M4.93 15.07l1.41-1.41M13.66 6.34l1.41-1.41"/></svg>
+      <span>调试</span>
     </button>
   </div>
 </template>
@@ -36,7 +44,7 @@ defineProps({
   }
 })
 
-defineEmits(['add-env', 'add-group', 'account'])
+defineEmits(['add-env', 'add-group', 'share', 'account', 'debug'])
 </script>
 
 <style scoped>
@@ -119,6 +127,28 @@ defineEmits(['add-env', 'add-group', 'account'])
 .btn-account:hover {
   background: #90caf9;
   border-color: #0d47a1;
+}
+
+.btn-share {
+  border-color: #66bb6a;
+  color: #1b5e20;
+  background: #c8e6c9;
+}
+
+.btn-share:hover {
+  background: #a5d6a7;
+  border-color: #1b5e20;
+}
+
+.btn-debug {
+  border-color: #ce93d8;
+  color: #4a148c;
+  background: #f3e5f5;
+}
+
+.btn-debug:hover {
+  background: #e1bee7;
+  border-color: #4a148c;
 }
 
 .btn-manual {

@@ -184,32 +184,43 @@ const PasskeyUI = {
   },
 
   // 显示选择环境的浮层
-  showSelector(mode, environments, rpId) {
+  showSelector(mode, environments, rpId, options) {
+    console.log('[UI] ⓪ showSelector 入参', {
+      mode,
+      rpId,
+      envCount: (environments || []).length,
+      envs: (environments || []).map(e => ({
+        id: e.id,
+        passkeysType: typeof e.passkeys,
+        passkeysIsArray: Array.isArray(e.passkeys),
+        passkeysLength: Array.isArray(e.passkeys) ? e.passkeys.length : 0
+      }))
+    });
     this.close();
 
+    options = options || {};
+
     return new Promise((resolve) => {
-      this._resolve = resolve;
+      try {
+        this._resolve = resolve;
 
-      const { overlay, card } = this._createContainer();
+        const { overlay, card } = this._createContainer();
 
-      // 头部
-      const header = this._createHeader(
-        mode === 'create' ? '创建 Passkey' : '选择 Passkey 验证',
-        mode === 'create' ? '请选择要绑定的环境' : '请选择用于验证的环境'
-      );
-      card.appendChild(header);
-
-      // 内容区
-      const content = document.createElement('div');
-      content.style.cssText = 'padding: 14px 20px; overflow-y: auto; flex: 1;';
-
-      // 筛选环境
-      let displayEnvs = environments || [];
-      if (mode === 'login') {
-        displayEnvs = environments.filter(env =>
-          env.passkeys && env.passkeys.some(pk => this._rpIdMatches(pk.rpId, rpId))
+        // 头部
+        const header = this._createHeader(
+          mode === 'create' ? '创建 Passkey' : '选择 Passkey 验证',
+          mode === 'create' ? '请选择要绑定的环境' : '请选择用于验证的环境'
         );
-      }
+        card.appendChild(header);
+
+        // 内容区
+        const content = document.createElement('div');
+        content.style.cssText = 'padding: 14px 20px; overflow-y: auto; flex: 1;';
+
+        // 不做任何筛选，直接使用传入的环境
+        let displayEnvs = environments || [];
+
+        console.log('[UI] ⓪ 直接使用传入环境，不做筛选，数量:', displayEnvs.length);
 
       if (displayEnvs.length === 0) {
         const empty = document.createElement('div');
@@ -308,6 +319,7 @@ const PasskeyUI = {
 
           item.appendChild(tagRow);
 
+          // 默认点击行为
           item.onclick = () => {
             if (isWarning) {
               const confirmed = confirm('该环境已绑定 Passkey，继续操作将覆盖原有绑定。是否继续？');
@@ -325,19 +337,21 @@ const PasskeyUI = {
       // 底部按钮
       const footer = this._createFooter();
 
-      const createBtn = this._createButton('创建新环境', 'link');
-      createBtn.onclick = () => {
-        this.close();
-        this.showCreateEnv(rpId).then(newEnv => {
-          if (newEnv) {
-            resolve(newEnv);
-          } else {
-            // 用户取消了创建，重新显示选择器
-            this.showSelector(mode, environments, rpId).then(resolve);
-          }
-        });
-      };
-      footer.appendChild(createBtn);
+      if (mode === 'create') {
+        const createBtn = this._createButton('创建新环境', 'link');
+        createBtn.onclick = () => {
+          this.close();
+          this.showCreateEnv(rpId).then(newEnv => {
+            if (newEnv) {
+              resolve(newEnv);
+            } else {
+              // 用户取消了创建，重新显示选择器
+              this.showSelector(mode, environments, rpId).then(resolve);
+            }
+          });
+        };
+        footer.appendChild(createBtn);
+      }
 
       const cancelBtn = this._createButton('取消', 'secondary');
       cancelBtn.onclick = () => {
@@ -348,6 +362,11 @@ const PasskeyUI = {
       card.appendChild(footer);
       document.body.appendChild(overlay);
       this._overlay = overlay;
+      console.log('[UI] ⓪ 浮层已挂载到 DOM，等待用户选择');
+    } catch (e) {
+      console.error('[UI] ⓪ showSelector 异常', e);
+      resolve(null);
+    }
     });
   },
 
