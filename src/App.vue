@@ -471,7 +471,7 @@ const handleLogin = async (env) => {
         }
       })
     } catch (e) {
-      console.warn('暂存 loginEnv 失败', e)
+      // 暂存失败，继续登录流程
     }
 
     await login(env)

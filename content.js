@@ -198,7 +198,8 @@ function cropImage(dataUrl, x, y, width, height) {
 
   /**
    * 注入 page-world.js 到页面主世界
-   * v4 架构不再需要 cbor.js / webauthn-authenticator.js / passkey-ui.js
+   * v4 架构：不再向页面注入 cbor.js / webauthn-authenticator.js / passkey-ui.js
+   * 注：cbor.js 和 webauthn-authenticator.js 仍由 Side Panel 的 index.html 加载使用
    */
   function injectPageWorldScript() {
     try {
@@ -270,7 +271,7 @@ function cropImage(dataUrl, x, y, width, height) {
       return;
     }
 
-    console.warn(`${CT} [message] 未处理的消息: ${action}`);
+    console.error(`${CT} [message] 未处理的消息: ${action}`);
   });
 
   // ====== 接收 Side Panel 的直接响应（sf:passkeyResult） ======

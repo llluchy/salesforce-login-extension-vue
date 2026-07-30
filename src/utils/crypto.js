@@ -311,7 +311,6 @@ export async function decryptEnv(row, key) {
       }
     }
   } catch (e) {
-    console.warn('[decryptEnv] passkeys 解密失败，回退为空数组', e.message)
     passkeys = []
   }
   return {

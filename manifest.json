@@ -33,7 +33,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["page-world.js", "lib/cbor.js", "lib/webauthn-authenticator.js"],
+      "resources": ["page-world.js"],
       "matches": [
         "https://*.salesforce.com/*",
         "https://*.force.com/*",
