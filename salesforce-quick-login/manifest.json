@@ -36,32 +36,13 @@
   ],
   "web_accessible_resources": [
     {
+      "resources": ["page-world.js"],
       "matches": [
-        "https://*.cloudforce.com/*",
+        "https://*.salesforce.com/*",
         "https://*.force.com/*",
         "https://*.my.salesforce.com/*",
-        "https://*.salesforce.com/*"
-      ],
-      "resources": [
-        "page-world.js",
-        "lib/cbor.js",
-        "lib/webauthn-authenticator.js",
-        "lib/passkey-ui.js"
-      ],
-      "use_dynamic_url": false
-    },
-    {
-      "matches": [
-        "https://*.cloudforce.com/*",
-        "https://*.force.com/*",
-        "https://*.my.salesforce.com/*",
-        "https://*.my.site.com/*",
-        "https://*.salesforce.com/*"
-      ],
-      "resources": [
-        "assets/content.js-BRDBA1mT.js"
-      ],
-      "use_dynamic_url": false
+        "https://*.cloudforce.com/*"
+      ]
     }
   ],
   "side_panel": {
