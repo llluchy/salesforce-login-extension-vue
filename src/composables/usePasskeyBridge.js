@@ -1,0 +1,477 @@
+// ============================================
+// Passkey Bridge（v4 架构）
+// - Side Panel 集中处理所有 Passkey 操作
+// - 接收 page-world.js 的 WebAuthn 请求
+// - 暴露 reactive state 供 App.vue 显示 UI
+// - 保留 bg:* 消息用于数据管理
+// ============================================
+
+import { ref, readonly } from 'vue'
+import { useStorage } from './useStorage'
+import { useAuth } from './useAuth'
+
+let _listener = null
+
+// ============================================
+// 全局状态：当前待处理的 Passkey 请求
+// App.vue watch 此值来显示/隐藏 Passkey 选择对话框
+// ============================================
+export const passkeyRequest = ref(null) // { type, resolve, reject, data, environments }
+
+export function initPasskeyBridge() {
+  if (_listener) return
+
+  if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.onMessage) {
+    console.warn('[PasskeyBridge] 非扩展环境，跳过消息桥注册')
+    return
+  }
+
+  const {
+    loadEnvironments, saveEnvironments,
+    loadPasskeyCredentials, savePasskeyCredential,
+    getPasskeyCredentialById,
+    updatePasskeySignCount
+  } = useStorage()
+  const { isAuthed, getCryptoKeyRaw, currentUser } = useAuth()
+
+  const requireAuth = () => {
+    if (!isAuthed.value || !getCryptoKeyRaw()) {
+      return { success: false, error: '请先在扩展面板登录并解锁' }
+    }
+    return null
+  }
+
+  // ============================================
+  // WebAuthn 认证器引用（从全局加载）
+  // ============================================
+  function getAuthenticator() {
+    if (typeof WebAuthnAuthenticator !== 'undefined') return WebAuthnAuthenticator
+    throw new Error('WebAuthnAuthenticator 未加载，请检查 index.html 中 script 标签')
+  }
+
+  // ============================================
+  // 序列化 credential（ArrayBuffer → base64url，用于跨消息传递）
+  // ============================================
+  function serializeCredential(cred) {
+    const auth = getAuthenticator()
+    const serialized = {
+      id: cred.id,
+      type: cred.type,
+      authenticatorAttachment: cred.authenticatorAttachment,
+      response: {},
+      clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {}
+    }
+
+    if (cred.response) {
+      if (cred.response.clientDataJSON) {
+        serialized.response.clientDataJSON = auth._arrayBufferToBase64url(
+          cred.response.clientDataJSON instanceof ArrayBuffer ? new Uint8Array(cred.response.clientDataJSON) : cred.response.clientDataJSON
+        )
+      }
+      if (cred.response.authenticatorData) {
+        serialized.response.authenticatorData = auth._arrayBufferToBase64url(
+          cred.response.authenticatorData instanceof ArrayBuffer ? new Uint8Array(cred.response.authenticatorData) : cred.response.authenticatorData
+        )
+      }
+      if (cred.response.signature) {
+        serialized.response.signature = auth._arrayBufferToBase64url(
+          cred.response.signature instanceof ArrayBuffer ? new Uint8Array(cred.response.signature) : cred.response.signature
+        )
+      }
+      if (cred.response.userHandle) {
+        serialized.response.userHandle = auth._arrayBufferToBase64url(
+          cred.response.userHandle instanceof ArrayBuffer ? new Uint8Array(cred.response.userHandle) : cred.response.userHandle
+        )
+      }
+      if (cred.response.attestationObject) {
+        serialized.response.attestationObject = auth._arrayBufferToBase64url(
+          cred.response.attestationObject instanceof ArrayBuffer ? new Uint8Array(cred.response.attestationObject) : cred.response.attestationObject
+        )
+      }
+      // 序列化 getter 结果
+      if (cred.response.getTransports) {
+        serialized.response.transports = cred.response.getTransports()
+      }
+      if (cred.response.getAuthenticatorData) {
+        const ad = cred.response.getAuthenticatorData()
+        if (ad instanceof ArrayBuffer) {
+          serialized.response.authenticatorData = auth._arrayBufferToBase64url(new Uint8Array(ad))
+        }
+      }
+      if (cred.response.getPublicKey) {
+        const pk = cred.response.getPublicKey()
+        if (pk instanceof ArrayBuffer) {
+          serialized.response.getPublicKey = auth._arrayBufferToBase64url(new Uint8Array(pk))
+        }
+      }
+      if (cred.response.getPublicKeyAlgorithm !== undefined) {
+        serialized.response.getPublicKeyAlgorithm = cred.response.getPublicKeyAlgorithm
+      }
+    }
+
+    return serialized
+  }
+
+  // ============================================
+  // 向 content.js 发送响应（通过 sender.tab.id）
+  // ============================================
+  function respondToContent(msg, data) {
+    if (!msg._senderTabId) {
+      console.error('[PasskeyBridge] 无法响应：缺少 sender.tab.id')
+      return
+    }
+    chrome.tabs.sendMessage(msg._senderTabId, {
+      action: 'sf:passkeyResult',
+      requestId: msg.requestId,
+      data: data
+    }).catch(e => console.error('[PasskeyBridge] sendMessage 失败', e))
+  }
+
+  // ============================================
+  // 处理 sf:passkeyGet — 认证断言
+  // 所有业务判断在此完成：登录检查 / rpId检查 / 环境加载 / UI选择 / WebAuthn签名
+  // ============================================
+  async function handlePasskeyGet(msg) {
+    const { rpId, challenge, allowCredentials, origin } = msg.data
+
+    console.log('[PasskeyBridge] sf:passkeyGet ', { rpId, allowCount: allowCredentials?.length || 0, origin })
+
+    // 未登录 → 不处理，让页面走系统 Passkey
+    if (!isAuthed.value || !getCryptoKeyRaw()) {
+      console.log('[PasskeyBridge] sf:passkeyGet → fallback (未登录)')
+      respondToContent(msg, { fallback: true })
+      return
+    }
+
+    try {
+      // 加载有 Passkey 的环境
+      const envs = await loadEnvironments()
+      const envsWithPasskeys = (envs || []).filter(e => e.passkeys && e.passkeys.length > 0)
+
+      console.log('[PasskeyBridge] 环境:', {
+        total: envs.length,
+        withPasskeys: envsWithPasskeys.length,
+        details: envs.map(e => ({
+          id: e.id?.substring(0, 8),
+          alias: e.alias,
+          passkeysCount: (e.passkeys || []).length,
+          passkeyRpIds: (e.passkeys || []).map(p => p.rpId),
+          rpId: e.passkeys?.[0]?.rpId
+        }))
+      })
+
+      // 无可用环境也弹出对话框（让用户知情，而非静默降级）
+      if (envsWithPasskeys.length === 0) {
+        console.log('[PasskeyBridge] 无 Passkey 环境，显示提示对话框')
+      }
+
+      // 等待用户在 Side Panel UI 中选择
+      const selectedEnv = await new Promise((resolve, reject) => {
+        passkeyRequest.value = {
+          type: 'get',
+          resolve: (env) => { passkeyRequest.value = null; resolve(env) },
+          reject: (err) => { passkeyRequest.value = null; reject(err) },
+          data: { rpId, challenge, allowCredentials, origin },
+          environments: envsWithPasskeys
+        }
+      })
+
+      // 用户取消 → 不处理
+      if (!selectedEnv) {
+        console.log('[PasskeyBridge] sf:passkeyGet → fallback (用户取消)')
+        respondToContent(msg, { fallback: true })
+        return
+      }
+
+      // 执行 WebAuthn getAssertion
+      const auth = getAuthenticator()
+      const result = await auth.getAssertion(
+        { rpId, challenge, allowCredentials: allowCredentials || [] },
+        origin,
+        Array.isArray(selectedEnv.passkeys) ? selectedEnv.passkeys : []
+      )
+
+      // 凭证不匹配 → 不处理
+      if (!result) {
+        console.log('[PasskeyBridge] sf:passkeyGet → fallback (凭证不匹配)')
+        respondToContent(msg, { fallback: true })
+        return
+      }
+
+      // 更新 signCount
+      try { await updatePasskeySignCount(result.updatedCredential.credentialId, result.updatedCredential.signCount) }
+      catch (e) { console.warn('[PasskeyBridge] 更新 signCount 失败', e) }
+
+      console.log('[PasskeyBridge] sf:passkeyGet → 成功')
+      respondToContent(msg, { success: true, credential: serializeCredential(result.credential) })
+
+    } catch (e) {
+      console.error('[PasskeyBridge] sf:passkeyGet 异常', e)
+      passkeyRequest.value = null
+      respondToContent(msg, { fallback: true })
+    }
+  }
+
+  // ============================================
+  // 处理 sf:passkeyCreate — 注册新凭证
+  // ============================================
+  async function handlePasskeyCreate(msg) {
+    const data = msg.data
+
+    console.log('[PasskeyBridge] sf:passkeyCreate', { rpId: data.rpId, rpName: data.rp?.name })
+
+    // 未登录 → 不处理
+    if (!isAuthed.value || !getCryptoKeyRaw()) {
+      respondToContent(msg, { fallback: true })
+      return
+    }
+
+    try {
+      const envs = await loadEnvironments()
+
+      // 等待用户选择/创建环境
+      const selectedEnv = await new Promise((resolve, reject) => {
+        passkeyRequest.value = {
+          type: 'create',
+          resolve: (env) => { passkeyRequest.value = null; resolve(env) },
+          reject: (err) => { passkeyRequest.value = null; reject(err) },
+          data: { ...data },
+          environments: envs
+        }
+      })
+
+      if (!selectedEnv) { respondToContent(msg, { fallback: true }); return }
+
+      // 执行 WebAuthn makeCredential
+      const auth = getAuthenticator()
+      const createOptions = {
+        rpId: data.rpId, rp: data.rp,
+        user: data.user ? {
+          id: auth._base64urlToUint8Array(data.user.id).buffer,
+          name: data.user.name, displayName: data.user.displayName
+        } : undefined,
+        challenge: auth._base64urlToUint8Array(data.challenge).buffer,
+        pubKeyCredParams: data.pubKeyCredParams,
+        excludeCredentials: (data.excludeCredentials || []).map(c => ({ id: c.id, type: c.type })),
+        authenticatorSelection: data.authenticatorSelection
+      }
+
+      const result = await auth.makeCredential(createOptions, data.origin)
+      if (!result || !result.credential) { respondToContent(msg, { fallback: true }); return }
+
+      // 保存凭证
+      const passkey = {
+        id: 'pk_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+        credentialId: result.privateKeyData.credentialId,
+        rpId: data.rpId, challenge: data.challenge,
+        privateKeyJwk: result.privateKeyData.privateKeyJwk,
+        publicKeyJwk: result.privateKeyData.publicKeyJwk || null,
+        userId: result.privateKeyData.userId,
+        userName: result.privateKeyData.userName,
+        userDisplayName: result.privateKeyData.userDisplayName,
+        envId: selectedEnv.id, signCount: 0, createdAt: Date.now()
+      }
+
+      await savePasskeyCredential(passkey)
+      const serialized = serializeCredential(result.credential)
+      console.log('[PasskeyBridge] sf:passkeyCreate → 成功', {
+        serializedKeys: Object.keys(serialized),
+        responseKeys: Object.keys(serialized.response || {}),
+        idPreview: serialized.id?.substring(0, 20),
+        clientDataJSONLen: serialized.response?.clientDataJSON?.length,
+        attestationObjectLen: serialized.response?.attestationObject?.length
+      })
+      respondToContent(msg, { success: true, credential: serialized })
+
+    } catch (e) {
+      console.error('[PasskeyBridge] sf:passkeyCreate 异常', e)
+      passkeyRequest.value = null
+      respondToContent(msg, { fallback: true })
+    }
+  }
+
+  // ============================================
+  // 消息处理器
+  // ============================================
+  const handlers = {
+    // ====== 新 v4 消息：Passkey 操作 ======
+    'sf:passkeyGet': handlePasskeyGet,
+    'sf:passkeyCreate': handlePasskeyCreate,
+
+    // ====== 数据管理（保留 bg:* 兼容） ======
+    'bg:updatePasskeySignCount': async (msg) => {
+      const authErr = requireAuth()
+      if (authErr) return authErr
+      return await updatePasskeySignCount(msg.credentialId, msg.signCount)
+    },
+
+    'bg:exportPasskeyBackup': async () => {
+      const authErr = requireAuth()
+      if (authErr) return authErr
+      const [creds, envs] = await Promise.all([
+        loadPasskeyCredentials(),
+        loadEnvironments()
+      ])
+      return {
+        success: true,
+        backup: {
+          version: 2,
+          exportedAt: new Date().toISOString(),
+          credentials: creds,
+          environments: envs
+        }
+      }
+    },
+
+    'bg:importPasskeyBackup': async (msg) => {
+      const authErr = requireAuth()
+      if (authErr) return authErr
+      const backup = msg.backup
+      if (!backup || !Array.isArray(backup.credentials)) {
+        return { success: false, error: '备份文件格式无效' }
+      }
+
+      let credCount = 0
+      for (const cred of backup.credentials) {
+        const r = await savePasskeyCredential(cred)
+        if (r?.success) credCount++
+      }
+
+      let envCount = 0
+      if (Array.isArray(backup.environments) && backup.environments.length > 0) {
+        const existing = await loadEnvironments()
+        const merged = [...existing]
+        for (const env of backup.environments) {
+          if (!merged.find(e => e.id === env.id)) {
+            merged.push(env)
+            envCount++
+          }
+        }
+        await saveEnvironments(merged)
+      }
+
+      return {
+        success: true,
+        imported: { credentials: credCount, environments: envCount }
+      }
+    },
+
+    'bg:manualBindPasskey': async (msg) => {
+      const authErr = requireAuth()
+      if (authErr) return authErr
+      const cred = msg.credential
+      if (!cred || !cred.credentialId) {
+        return { success: false, error: '凭证数据不完整：需要 credentialId' }
+      }
+      return await savePasskeyCredential(cred)
+    },
+
+    'bg:getPasskeyById': async (msg) => {
+      const authErr = requireAuth()
+      if (authErr) return authErr
+      const cred = await getPasskeyCredentialById(msg.credentialId)
+      return cred
+        ? { success: true, credential: cred }
+        : { success: false, error: '未找到该 credentialId 对应的凭证' }
+    },
+
+    'bg:listPasskeys': async () => {
+      const authErr = requireAuth()
+      if (authErr) return authErr
+      const creds = await loadPasskeyCredentials()
+      return {
+        success: true,
+        credentials: creds.map(c => ({
+          credentialId: c.credentialId,
+          rpId: c.rpId,
+          userId: c.userId,
+          userName: c.userName,
+          envId: c.envId,
+          createdAt: c.createdAt,
+          hasPrivateKey: !!c.privateKeyJwk
+        }))
+      }
+    },
+
+    'bg:getEnvironments': async () => {
+      const authErr = requireAuth()
+      if (authErr) return authErr
+      return { environments: await loadEnvironments() }
+    },
+
+    'bg:saveNewEnvironment': async (msg) => {
+      const authErr = requireAuth()
+      if (authErr) return authErr
+      const newEnv = msg.environment
+      if (!newEnv) return { success: false, error: '环境数据为空' }
+      const envs = await loadEnvironments()
+      if (!envs.find(e => e.id === newEnv.id)) envs.push(newEnv)
+      return await saveEnvironments(envs)
+    },
+
+    'bg:bindPasskeyToEnv': async (msg) => {
+      const authErr = requireAuth()
+      if (authErr) return authErr
+      const { envId, passkey } = msg
+      if (!envId || !passkey) return { success: false, error: '参数不完整' }
+      const envs = await loadEnvironments()
+      const idx = envs.findIndex(e => e.id === envId)
+      if (idx === -1) return { success: false, error: '未找到环境' }
+      if (!envs[idx].passkeys) envs[idx].passkeys = []
+      if (!envs[idx].passkeys.find(pk => pk.rpId === passkey.rpId)) {
+        envs[idx].passkeys.push(passkey)
+      }
+      return await saveEnvironments(envs)
+    }
+  }
+
+  // ============================================
+  // 注册 chrome.runtime.onMessage 监听
+  // ============================================
+  _listener = (msg, sender, sendResponse) => {
+    if (!msg || typeof msg.action !== 'string') return
+
+    const handler = handlers[msg.action]
+    if (!handler) return
+
+    // sf:* 消息使用 chrome.tabs.sendMessage 直接回复（不依赖 sendResponse 回调）
+    if (msg.action.startsWith('sf:')) {
+      console.log('[PasskeyBridge] 收到 sf 消息:', msg.action, {
+        requestId: msg.requestId,
+        rpId: msg.data?.rpId,
+        origin: msg.data?.origin,
+        senderTabId: sender.tab?.id
+      })
+      msg._senderTabId = sender.tab?.id
+      handler(msg).catch(err => {
+        console.error('[PasskeyBridge] sf 处理失败', msg.action, err)
+      })
+      return // 不返回 true，Chrome 知道这是同步处理
+    }
+
+    // bg:* 消息使用传统的 sendResponse 回调
+    Promise.resolve(handler(msg, sendResponse))
+      .then(result => {
+        if (result) sendResponse(result)
+      })
+      .catch(err => {
+        console.error('[PasskeyBridge] 处理失败', msg.action, err)
+        sendResponse({ success: false, error: err.message || String(err) })
+      })
+
+    return true
+  }
+
+  chrome.runtime.onMessage.addListener(_listener)
+  console.log('[PasskeyBridge] v4 消息监听已注册')
+}
+
+export function destroyPasskeyBridge() {
+  if (_listener) {
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+      chrome.runtime.onMessage.removeListener(_listener)
+    }
+    _listener = null
+    console.log('[PasskeyBridge] 消息监听已注销')
+  }
+}

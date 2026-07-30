@@ -1,0 +1,485 @@
+// ============================================
+// WebAuthn 软件认证器
+// 参考 Bitwarden 实现，完全在扩展内完成 Passkey 创建和验证
+// 不依赖系统 Passkey（Windows Hello 等）
+// ============================================
+
+const WebAuthnAuthenticator = {
+  AAGUID: new Uint8Array([0xa2, 0x8c, 0x3d, 0xf7, 0x1b, 0x5e, 0x4a, 0x89,
+                          0x9c, 0xd0, 0x2e, 0x6f, 0xb3, 0x41, 0x7a, 0xd8]),
+
+  async makeCredential(options, origin) {
+    const rpId = options.rpId || options.rp?.id || new URL(origin).hostname;
+    const userId = options.user?.id || new Uint8Array(0);
+    const userName = options.user?.name || '';
+    const userDisplayName = options.user?.displayName || '';
+
+    const keyPair = await crypto.subtle.generateKey(
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      true,
+      ['sign', 'verify']
+    );
+
+    const publicKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
+    const privateKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.privateKey);
+
+    const credentialId = crypto.getRandomValues(new Uint8Array(64));
+    const cosePublicKey = this._jwkToCoseKey(publicKeyJwk);
+    const attestedCredData = this._buildAttestedCredentialData(credentialId, cosePublicKey);
+
+    const rpIdHash = await this._sha256(rpId);
+    const flags = 0x41;
+    const signCount = 0;
+    const authData = this._buildAuthData(rpIdHash, flags, signCount, attestedCredData);
+
+    // challenge 可能是 ArrayBuffer、Uint8Array、或 base64url 字符串
+    let challengeBase64url;
+    if (options.challenge instanceof ArrayBuffer) {
+      challengeBase64url = this._arrayBufferToBase64url(new Uint8Array(options.challenge));
+    } else if (options.challenge instanceof Uint8Array) {
+      challengeBase64url = this._arrayBufferToBase64url(options.challenge);
+    } else if (options.challenge && typeof options.challenge === 'object' && options.challenge.buffer) {
+      // TypedArray view
+      challengeBase64url = this._arrayBufferToBase64url(new Uint8Array(options.challenge.buffer));
+    } else if (typeof options.challenge === 'string') {
+      // 已经是 base64url 字符串（来自 page-world.js 的 arrayBufferToBase64）
+      challengeBase64url = options.challenge;
+    } else {
+      challengeBase64url = String(options.challenge || '');
+    }
+    console.log('[WA] getAssertion challenge:', {
+      type: typeof options.challenge,
+      isArrayBuffer: options.challenge instanceof ArrayBuffer,
+      isUint8Array: options.challenge instanceof Uint8Array,
+      challengePreview: challengeBase64url.substring(0, 32) + '...',
+      challengeLength: challengeBase64url.length
+    });
+
+    const clientDataJSON = JSON.stringify({
+      type: 'webauthn.create',
+      challenge: challengeBase64url,
+      origin: origin,
+      crossOrigin: false
+    });
+    const clientDataJSONBuffer = new TextEncoder().encode(clientDataJSON);
+
+    const attestationObject = CBOR.encode({
+      fmt: 'none',
+      attStmt: {},
+      authData: new Uint8Array(authData)
+    });
+
+    const response = {
+      clientDataJSON: clientDataJSONBuffer.buffer,
+      attestationObject: attestationObject,
+      challenge: challengeBase64url,
+      origin: origin,
+    };
+
+    Object.defineProperty(response, 'getAuthenticatorData', {
+      value: () => authData.buffer,
+      enumerable: false,
+      configurable: true,
+      writable: true
+    });
+
+    Object.defineProperty(response, 'getPublicKey', {
+      value: () => {
+        const pkBytes = CBOR.encode(cosePublicKey);
+        return new Uint8Array(pkBytes).buffer;
+      },
+      enumerable: false,
+      configurable: true,
+      writable: true
+    });
+
+    Object.defineProperty(response, 'getPublicKeyAlgorithm', {
+      value: () => -7,
+      enumerable: false,
+      configurable: true,
+      writable: true
+    });
+
+    Object.defineProperty(response, 'getTransports', {
+      value: () => ['internal'],
+      enumerable: false,
+      configurable: true,
+      writable: true
+    });
+
+    const credential = {
+      id: this._arrayBufferToBase64url(credentialId.buffer),
+      rawId: credentialId.buffer,
+      type: 'public-key',
+      authenticatorAttachment: 'platform',
+      response: response,
+    };
+
+    Object.defineProperty(credential, 'getClientExtensionResults', {
+      value: () => ({ credProps: { rk: true } }),
+      enumerable: false,
+      configurable: true,
+      writable: true
+    });
+
+    const self = this;
+    response.toJSON = function() {
+      return {
+        challenge: challengeBase64url,
+        origin: origin,
+        clientDataJSON: self._arrayBufferToBase64url(clientDataJSONBuffer.buffer),
+        attestationObject: self._arrayBufferToBase64url(attestationObject),
+        transports: ['internal'],
+        getPublicKeyAlgorithm: -7,
+        getTransports: ['internal'],
+        getAuthenticatorData: self._arrayBufferToBase64url(authData.buffer),
+        getPublicKey: self._arrayBufferToBase64url(new Uint8Array(CBOR.encode(cosePublicKey)).buffer),
+      };
+    };
+
+    credential.toJSON = function() {
+      return {
+        id: credential.id,
+        rawId: credential.id,
+        type: credential.type,
+        authenticatorAttachment: credential.authenticatorAttachment,
+        response: response.toJSON(),
+        clientExtensionResults: credential.getClientExtensionResults(),
+      };
+    };
+
+    const userIdBase64url = this._arrayBufferToBase64url(
+      userId instanceof ArrayBuffer ? userId : userId.buffer
+    );
+
+    const privateKeyData = {
+      credentialId: credential.id,
+      rpId: rpId,
+      privateKeyJwk: privateKeyJwk,
+      publicKeyJwk: publicKeyJwk,
+      userId: userIdBase64url,
+      userName: userName,
+      userDisplayName: userDisplayName,
+      signCount: 0,
+      createdAt: Date.now()
+    };
+
+    return { credential, privateKeyData };
+  },
+
+  async getAssertion(options, origin, storedCredentials) {
+    const rpId = options.rpId || new URL(origin).hostname;
+    const creds = storedCredentials || [];
+    const allowCredentials = options.allowCredentials || [];
+
+    console.log('[WA] getAssertion 开始', {
+      rpId,
+      origin,
+      storedCredsCount: creds.length,
+      allowCredsCount: allowCredentials.length,
+      storedCredIds: creds.map(c => c.credentialId ? c.credentialId.substring(0, 16) + '...' : '(无credentialId)'),
+      storedRpIds: creds.map(c => c.rpId || '(无rpId)'),
+      allowCredIds: allowCredentials.map(c => {
+        const id = typeof c === 'string' ? c : c.id;
+        if (id instanceof ArrayBuffer || (id && id.buffer)) {
+          const bytes = new Uint8Array(id instanceof ArrayBuffer ? id : id.buffer);
+          return this._arrayBufferToBase64url(bytes).substring(0, 16) + '...';
+        }
+        return typeof id === 'string' ? id.substring(0, 16) + '...' : '(未知类型)';
+      })
+    });
+
+    let matchedCredential = null;
+
+    if (allowCredentials.length > 0) {
+      for (const allowCred of allowCredentials) {
+        let credId;
+        // allowCred.id 可能是 ArrayBuffer、Uint8Array 或 string
+        if (typeof allowCred === 'string') {
+          credId = allowCred;
+        } else if (allowCred.id instanceof ArrayBuffer) {
+          credId = this._arrayBufferToBase64url(new Uint8Array(allowCred.id));
+        } else if (allowCred.id && allowCred.id.buffer) {
+          credId = this._arrayBufferToBase64url(new Uint8Array(allowCred.id.buffer));
+        } else if (typeof allowCred.id === 'string') {
+          credId = allowCred.id;
+        }
+        
+        console.log('[WA] getAssertion 尝试匹配 allowCred:', {
+          credIdPreview: credId ? credId.substring(0, 16) + '...' : '(空)',
+          credIdLength: credId ? credId.length : 0
+        });
+
+        // 优先用 credentialId 精确匹配
+        matchedCredential = creds.find(c => {
+          if (!c.credentialId) return false;
+          // 标准化比较：去除 base64url padding 差异
+          const stored = c.credentialId.replace(/=/g, '');
+          const allowed = credId.replace(/=/g, '');
+          return stored === allowed;
+        });
+        if (matchedCredential) {
+          console.log('[WA] getAssertion 精确匹配成功!', { credIdPreview: credId.substring(0, 16) + '...' });
+          break;
+        }
+      }
+    }
+    
+    // 如果 allowCredentials 为空（discoverable credential），直接用 rpId 匹配
+    if (!matchedCredential && allowCredentials.length === 0) {
+      console.log('[WA] getAssertion allowCredentials 为空，使用 rpId 匹配');
+      matchedCredential = creds.find(c => c.rpId === rpId);
+    }
+
+    if (!matchedCredential) {
+      console.error('[WA] getAssertion 未找到匹配凭证！', {
+        rpId,
+        storedCount: creds.length,
+        allowCount: allowCredentials.length,
+        storedDetails: creds.map(c => ({
+          credentialId: c.credentialId ? c.credentialId.substring(0, 16) + '...' : null,
+          rpId: c.rpId
+        })),
+        allowDetails: allowCredentials.map(c => {
+          const id = typeof c === 'string' ? c : c.id;
+          if (id instanceof ArrayBuffer || (id && id.buffer)) {
+            const bytes = new Uint8Array(id instanceof ArrayBuffer ? id : id.buffer);
+            return this._arrayBufferToBase64url(bytes).substring(0, 16) + '...';
+          }
+          return typeof id === 'string' ? id.substring(0, 16) + '...' : '(未知)';
+        })
+      });
+      return null;
+    }
+
+    console.log('[WA] getAssertion 使用凭证:', {
+      credentialId: matchedCredential.credentialId ? matchedCredential.credentialId.substring(0, 16) + '...' : '(无)',
+      rpId: matchedCredential.rpId,
+      hasPrivateKey: !!matchedCredential.privateKeyJwk
+    });
+
+    const privateKey = await crypto.subtle.importKey(
+      'jwk',
+      matchedCredential.privateKeyJwk,
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false,
+      ['sign']
+    );
+
+    const rpIdHash = await this._sha256(rpId);
+    const flags = 0x05;
+    const signCount = ++matchedCredential.signCount;
+    const authData = this._buildAuthData(rpIdHash, flags, signCount, null);
+
+    let challengeBuf = options.challenge;
+    if (options.challenge instanceof Uint8Array) {
+      challengeBuf = options.challenge.buffer;
+    } else if (options.challenge && typeof options.challenge === 'object' && options.challenge.buffer) {
+      challengeBuf = options.challenge.buffer;
+    }
+    const challengeBase64url = (challengeBuf instanceof ArrayBuffer)
+      ? this._arrayBufferToBase64url(challengeBuf)
+      : String(challengeBuf);
+
+    const clientDataJSON = JSON.stringify({
+      type: 'webauthn.get',
+      challenge: challengeBase64url,
+      origin: origin,
+      crossOrigin: false
+    });
+    const clientDataJSONBuffer = new TextEncoder().encode(clientDataJSON);
+
+    const clientDataHash = await this._sha256(clientDataJSONBuffer);
+    const signatureBase = this._concatBuffers(authData.buffer, clientDataHash);
+
+    const p1363Signature = await crypto.subtle.sign(
+      { name: 'ECDSA', hash: { name: 'SHA-256' } },
+      privateKey,
+      signatureBase
+    );
+    // WebAuthn 规范要求 ECDSA 签名为 DER (ASN.1) 格式，
+    // 但 Web Crypto API 返回 P-1363 (r || s) 格式，需要转换
+    const rawSignature = this._p1363ToDer(new Uint8Array(p1363Signature)).buffer;
+
+    const credentialIdBytes = this._base64urlToArrayBuffer(matchedCredential.credentialId);
+    const userHandle = matchedCredential.userId
+      ? this._base64urlToUint8Array(matchedCredential.userId)
+      : (matchedCredential.userName ? new TextEncoder().encode(matchedCredential.userName) : new Uint8Array(0));
+
+    const credential = {
+      id: matchedCredential.credentialId,
+      rawId: credentialIdBytes,
+      type: 'public-key',
+      authenticatorAttachment: 'platform',
+      response: {
+        authenticatorData: authData.buffer,
+        clientDataJSON: clientDataJSONBuffer.buffer,
+        signature: rawSignature,
+        userHandle: userHandle.buffer,
+        challenge: challengeBase64url,
+        origin: origin,
+      },
+    };
+
+    Object.defineProperty(credential, 'getClientExtensionResults', {
+      value: () => ({}),
+      enumerable: false,
+      configurable: true,
+      writable: true
+    });
+
+    const self = this;
+    credential.response.toJSON = function() {
+      return {
+        challenge: challengeBase64url,
+        origin: origin,
+        clientDataJSON: self._arrayBufferToBase64url(clientDataJSONBuffer.buffer),
+        authenticatorData: self._arrayBufferToBase64url(authData.buffer),
+        signature: self._arrayBufferToBase64url(rawSignature),
+        userHandle: userHandle && userHandle.length > 0 ? self._arrayBufferToBase64url(userHandle.buffer) : null,
+      };
+    };
+
+    credential.toJSON = function() {
+      return {
+        id: credential.id,
+        rawId: credential.id,
+        type: credential.type,
+        authenticatorAttachment: credential.authenticatorAttachment,
+        response: credential.response.toJSON(),
+        clientExtensionResults: credential.getClientExtensionResults(),
+      };
+    };
+
+    matchedCredential.signCount = signCount;
+
+    return { credential, updatedCredential: matchedCredential };
+  },
+
+  _jwkToCoseKey(jwk) {
+    const x = this._base64urlToUint8Array(jwk.x);
+    const y = this._base64urlToUint8Array(jwk.y);
+
+    return {
+      1: 2,
+      3: -7,
+      '-1': 1,
+      '-2': x,
+      '-3': y,
+    };
+  },
+
+  _buildAttestedCredentialData(credentialId, cosePublicKey) {
+    const coseKeyBytes = new Uint8Array(CBOR.encode(cosePublicKey));
+    const result = new Uint8Array(16 + 2 + credentialId.length + coseKeyBytes.length);
+
+    result.set(this.AAGUID, 0);
+    result[16] = (credentialId.length >> 8) & 0xff;
+    result[17] = credentialId.length & 0xff;
+    result.set(credentialId, 18);
+    result.set(coseKeyBytes, 18 + credentialId.length);
+
+    return result;
+  },
+
+  _buildAuthData(rpIdHash, flags, signCount, attestedCredData) {
+    let totalLength = 32 + 1 + 4;
+    if (attestedCredData) {
+      totalLength += attestedCredData.length;
+    }
+
+    const result = new Uint8Array(totalLength);
+
+    result.set(new Uint8Array(rpIdHash), 0);
+    result[32] = flags;
+    result[33] = (signCount >> 24) & 0xff;
+    result[34] = (signCount >> 16) & 0xff;
+    result[35] = (signCount >> 8) & 0xff;
+    result[36] = signCount & 0xff;
+
+    if (attestedCredData) {
+      result.set(attestedCredData, 37);
+    }
+
+    return result;
+  },
+
+  async _sha256(data) {
+    const buffer = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+    return await crypto.subtle.digest('SHA-256', buffer);
+  },
+
+  _concatBuffers(a, b) {
+    const result = new Uint8Array(a.byteLength + b.byteLength);
+    result.set(new Uint8Array(a), 0);
+    result.set(new Uint8Array(b), a.byteLength);
+    return result.buffer;
+  },
+
+  _p1363ToDer(signature) {
+    const n = signature.length / 2;
+    const r = signature.slice(0, n);
+    const s = signature.slice(n);
+
+    const rDer = this._integerToDer(r);
+    const sDer = this._integerToDer(s);
+
+    // rDer 和 sDer 已包含各自的 [0x02, length] 头部,
+    // SEQUENCE 内容长度 = rDer.length + sDer.length,不需要额外加 2
+    const totalLength = rDer.length + sDer.length;
+    const result = new Uint8Array(2 + totalLength);
+
+    result[0] = 0x30;
+    result[1] = totalLength;
+    result.set(rDer, 2);
+    result.set(sDer, 2 + rDer.length);
+
+    return result;
+  },
+
+  _integerToDer(bytes) {
+    let offset = 0;
+    while (offset < bytes.length && bytes[offset] === 0) offset++;
+
+    let trimmed = bytes.slice(offset);
+
+    if (trimmed.length === 0) trimmed = new Uint8Array([0]);
+
+    if (trimmed[0] & 0x80) {
+      const padded = new Uint8Array(trimmed.length + 1);
+      padded.set(trimmed, 1);
+      trimmed = padded;
+    }
+
+    const result = new Uint8Array(2 + trimmed.length);
+    result[0] = 0x02;
+    result[1] = trimmed.length;
+    result.set(trimmed, 2);
+
+    return result;
+  },
+
+  _arrayBufferToBase64url(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  },
+
+  _base64urlToUint8Array(base64url) {
+    const padding = '='.repeat((4 - base64url.length % 4) % 4);
+    const b64 = (base64url + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(b64);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) {
+      bytes[i] = raw.charCodeAt(i);
+    }
+    return bytes;
+  },
+
+  _base64urlToArrayBuffer(base64url) {
+    return this._base64urlToUint8Array(base64url).buffer;
+  }
+};
