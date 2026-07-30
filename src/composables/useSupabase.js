@@ -33,10 +33,6 @@ export function getSupabase() {
         storageKey: '__sf_supabase_auth'
       }
     })
-    console.log('[Supabase] Client 初始化成功', {
-      url: SUPABASE_URL,
-      hasKey: !!SUPABASE_ANON_KEY
-    })
     return _client
   } catch (e) {
     _initError = e.message

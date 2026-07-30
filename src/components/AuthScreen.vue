@@ -148,14 +148,10 @@ const emit = defineEmits(['authed'])
 
 const { signIn, signUp, signOut, resetPassword, unlockWithPassword, isLoading, currentUser, authError } = useAuth()
 
-console.log('%c[AuthScreen] 组件初始化', 'color: purple; font-weight: bold;', { initialAuthError: authError?.value })
-
 // 监听 authError 变化（因为 getSession 是异步的，可能在组件挂载后才设置错误）
 watch(authError, (newVal) => {
-  console.log('%c[AuthScreen] authError 变化了', 'color: red; font-weight: bold;', { newError: newVal })
   if (newVal) {
     errorMessage.value = newVal
-    console.log('%c[AuthScreen] 已将 authError 同步到 errorMessage，应该显示红色警告框', 'color: red; font-weight: bold;')
   }
 }, { immediate: false })
 

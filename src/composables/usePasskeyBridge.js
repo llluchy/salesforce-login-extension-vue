@@ -22,7 +22,6 @@ export function initPasskeyBridge() {
   if (_listener) return
 
   if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.onMessage) {
-    console.warn('[PasskeyBridge] 非扩展环境，跳过消息桥注册')
     return
   }
 
@@ -117,14 +116,13 @@ export function initPasskeyBridge() {
   // ============================================
   function respondToContent(msg, data) {
     if (!msg._senderTabId) {
-      console.error('[PasskeyBridge] 无法响应：缺少 sender.tab.id')
       return
     }
     chrome.tabs.sendMessage(msg._senderTabId, {
       action: 'sf:passkeyResult',
       requestId: msg.requestId,
       data: data
-    }).catch(e => console.error('[PasskeyBridge] sendMessage 失败', e))
+    }).catch(e => { /* silent */ })
   }
 
   // ============================================
@@ -134,11 +132,8 @@ export function initPasskeyBridge() {
   async function handlePasskeyGet(msg) {
     const { rpId, challenge, allowCredentials, origin } = msg.data
 
-    console.log('[PasskeyBridge] sf:passkeyGet ', { rpId, allowCount: allowCredentials?.length || 0, origin })
-
     // 未登录 → 不处理，让页面走系统 Passkey
     if (!isAuthed.value || !getCryptoKeyRaw()) {
-      console.log('[PasskeyBridge] sf:passkeyGet → fallback (未登录)')
       respondToContent(msg, { fallback: true })
       return
     }
@@ -147,23 +142,6 @@ export function initPasskeyBridge() {
       // 加载有 Passkey 的环境
       const envs = await loadEnvironments()
       const envsWithPasskeys = (envs || []).filter(e => e.passkeys && e.passkeys.length > 0)
-
-      console.log('[PasskeyBridge] 环境:', {
-        total: envs.length,
-        withPasskeys: envsWithPasskeys.length,
-        details: envs.map(e => ({
-          id: e.id?.substring(0, 8),
-          alias: e.alias,
-          passkeysCount: (e.passkeys || []).length,
-          passkeyRpIds: (e.passkeys || []).map(p => p.rpId),
-          rpId: e.passkeys?.[0]?.rpId
-        }))
-      })
-
-      // 无可用环境也弹出对话框（让用户知情，而非静默降级）
-      if (envsWithPasskeys.length === 0) {
-        console.log('[PasskeyBridge] 无 Passkey 环境，显示提示对话框')
-      }
 
       // 等待用户在 Side Panel UI 中选择
       const selectedEnv = await new Promise((resolve, reject) => {
@@ -178,7 +156,6 @@ export function initPasskeyBridge() {
 
       // 用户取消 → 不处理
       if (!selectedEnv) {
-        console.log('[PasskeyBridge] sf:passkeyGet → fallback (用户取消)')
         respondToContent(msg, { fallback: true })
         return
       }
@@ -193,20 +170,17 @@ export function initPasskeyBridge() {
 
       // 凭证不匹配 → 不处理
       if (!result) {
-        console.log('[PasskeyBridge] sf:passkeyGet → fallback (凭证不匹配)')
         respondToContent(msg, { fallback: true })
         return
       }
 
       // 更新 signCount
       try { await updatePasskeySignCount(result.updatedCredential.credentialId, result.updatedCredential.signCount) }
-      catch (e) { console.warn('[PasskeyBridge] 更新 signCount 失败', e) }
+      catch (e) { /* silent */ }
 
-      console.log('[PasskeyBridge] sf:passkeyGet → 成功')
       respondToContent(msg, { success: true, credential: serializeCredential(result.credential) })
 
     } catch (e) {
-      console.error('[PasskeyBridge] sf:passkeyGet 异常', e)
       passkeyRequest.value = null
       respondToContent(msg, { fallback: true })
     }
@@ -217,8 +191,6 @@ export function initPasskeyBridge() {
   // ============================================
   async function handlePasskeyCreate(msg) {
     const data = msg.data
-
-    console.log('[PasskeyBridge] sf:passkeyCreate', { rpId: data.rpId, rpName: data.rp?.name })
 
     // 未登录 → 不处理
     if (!isAuthed.value || !getCryptoKeyRaw()) {
@@ -274,17 +246,9 @@ export function initPasskeyBridge() {
 
       await savePasskeyCredential(passkey)
       const serialized = serializeCredential(result.credential)
-      console.log('[PasskeyBridge] sf:passkeyCreate → 成功', {
-        serializedKeys: Object.keys(serialized),
-        responseKeys: Object.keys(serialized.response || {}),
-        idPreview: serialized.id?.substring(0, 20),
-        clientDataJSONLen: serialized.response?.clientDataJSON?.length,
-        attestationObjectLen: serialized.response?.attestationObject?.length
-      })
       respondToContent(msg, { success: true, credential: serialized })
 
     } catch (e) {
-      console.error('[PasskeyBridge] sf:passkeyCreate 异常', e)
       passkeyRequest.value = null
       respondToContent(msg, { fallback: true })
     }
@@ -436,15 +400,9 @@ export function initPasskeyBridge() {
 
     // sf:* 消息使用 chrome.tabs.sendMessage 直接回复（不依赖 sendResponse 回调）
     if (msg.action.startsWith('sf:')) {
-      console.log('[PasskeyBridge] 收到 sf 消息:', msg.action, {
-        requestId: msg.requestId,
-        rpId: msg.data?.rpId,
-        origin: msg.data?.origin,
-        senderTabId: sender.tab?.id
-      })
       msg._senderTabId = sender.tab?.id
       handler(msg).catch(err => {
-        console.error('[PasskeyBridge] sf 处理失败', msg.action, err)
+        /* silent */
       })
       return // 不返回 true，Chrome 知道这是同步处理
     }
@@ -455,7 +413,6 @@ export function initPasskeyBridge() {
         if (result) sendResponse(result)
       })
       .catch(err => {
-        console.error('[PasskeyBridge] 处理失败', msg.action, err)
         sendResponse({ success: false, error: err.message || String(err) })
       })
 
@@ -463,7 +420,6 @@ export function initPasskeyBridge() {
   }
 
   chrome.runtime.onMessage.addListener(_listener)
-  console.log('[PasskeyBridge] v4 消息监听已注册')
 }
 
 export function destroyPasskeyBridge() {
@@ -472,6 +428,5 @@ export function destroyPasskeyBridge() {
       chrome.runtime.onMessage.removeListener(_listener)
     }
     _listener = null
-    console.log('[PasskeyBridge] 消息监听已注销')
   }
 }

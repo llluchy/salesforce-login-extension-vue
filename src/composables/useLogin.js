@@ -74,8 +74,8 @@ export function useLogin() {
           username: env.username,
           password: env.password
         }, (response) => {
-          if (!response || !response.success) {
-            console.log('[useLogin] SOAP 登录失败，降级表单POST', response?.error)
+          const isSuccess = response && typeof response === 'object' && response.success
+          if (!isSuccess) {
             fallbackToFormPost(env, resolve, reject)
             return
           }
@@ -84,15 +84,12 @@ export function useLogin() {
             const result = parseSOAPResponse(response.xmlText)
             if (result) {
               const frontdoorUrl = buildFrontdoorUrl(result.serverUrl, result.sessionId)
-              console.log('[useLogin] SOAP 登录成功，使用 frontdoor', { frontdoorUrl })
               chrome.tabs.create({ url: frontdoorUrl })
               resolve({ success: true, method: 'soap' })
             } else {
-              console.log('[useLogin] SOAP 返回无有效数据，降级表单POST')
               fallbackToFormPost(env, resolve, reject)
             }
           } catch (e) {
-            console.log('[useLogin] SOAP XML 解析失败', e.message)
             fallbackToFormPost(env, resolve, reject)
           }
         })
@@ -100,7 +97,6 @@ export function useLogin() {
     } else {
       return new Promise((resolve) => {
         setTimeout(() => {
-          console.log('[Mock] Login with:', env.username)
           resolve({ success: true, mock: true })
         }, 500)
       })
@@ -142,7 +138,6 @@ export function useLogin() {
     } else {
       return new Promise((resolve) => {
         setTimeout(() => {
-          console.log('[Mock] Fill TOTP code:', code)
           resolve({ success: true, mock: true })
         }, 200)
       })

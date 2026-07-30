@@ -175,7 +175,6 @@ async function clearCryptoKey() {
  */
 async function exportUserKeyToSession() {
   if (!cryptoKey.value) {
-    console.warn('[Auth] exportUserKeyToSession 跳过：cryptoKey 为空')
     return
   }
   try {
@@ -186,16 +185,8 @@ async function exportUserKeyToSession() {
         [SESSION_KEY_LOGGED_IN]: true
       }
       await chrome.storage.session.set(payload)
-      console.log('[Auth] userKey 已导出到 session storage', {
-        keys: Object.keys(payload),
-        loggedInKey: SESSION_KEY_LOGGED_IN,
-        value: true
-      })
       // 验证一下是否存储成功
       const verify = await chrome.storage.session.get([SESSION_KEY_LOGGED_IN, SESSION_KEY_USER_KEY_JWK])
-      console.log('[Auth] session storage 验证结果', verify)
-    } else {
-      console.warn('[Auth] chrome.storage.session 不可用')
     }
   } catch (e) {
     logError('导出 userKey 到 session 失败', e)
@@ -339,15 +330,9 @@ async function recordLogin() {
 const TAG = '[Supabase/Auth]'
 
 function log(action, detail) {
-  if (detail !== undefined) {
-    console.log(`${TAG} ${action}`, detail)
-  } else {
-    console.log(`${TAG} ${action}`)
-  }
 }
 
 function logError(action, err) {
-  console.error(`${TAG} ✗ ${action}`, err)
 }
 
 /**
@@ -383,12 +368,6 @@ async function fetchUserSalt(userId) {
   }
 
   // 尝试 1：标准 base64 解码（TEXT 列的正常情况）
-  console.log('[Supabase/Auth] fetchUserSalt raw value:', {
-    type: typeof raw,
-    length: raw.length,
-    preview: raw.substring(0, 50),
-    firstChars: raw.split('').slice(0, 10).map(c => c.charCodeAt(0))
-  })
 
   try {
     const binary = atob(raw)
@@ -396,7 +375,6 @@ async function fetchUserSalt(userId) {
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i)
     }
-    console.log('[Supabase/Auth] fetchUserSalt base64 解码成功', { byteLength: bytes.length })
     return bytes
   } catch (atobErr) {
     // 尝试 2：hex 格式回退（BYTEA 列的 \x... 格式）
@@ -451,28 +429,18 @@ async function createUserSalt(userId) {
   const salt = generateSalt()
   const saltB64 = bytesToBase64(salt)
 
-  console.log('[Supabase/Auth] createUserSalt 准备写入', {
-    userId,
-    saltLength: salt.length,
-    saltB64Length: saltB64.length,
-    saltB64Preview: saltB64.substring(0, 20)
-  })
-
   const { error } = await supabase
     .from('user_secrets')
     .insert({ user_id: userId, salt: saltB64 })
 
   if (error) {
-    console.error('[Supabase/Auth] createUserSalt 写入失败', error)
     // 可能是并发注册时另一个会话已创建，再次拉取
     if (error.code === '23505') {
-      console.log('[Supabase/Auth] createUserSalt 检测到重复，尝试读取已有 salt')
       return await fetchUserSalt(userId)
     }
     throw new Error('保存 salt 失败：' + error.message)
   }
 
-  console.log('[Supabase/Auth] createUserSalt 写入成功')
   return salt
 }
 
@@ -687,15 +655,12 @@ async function signOut() {
  */
 async function getSession() {
   const supabase = getSupabase()
-  console.log('%c[设备检查-1] getSession 开始执行', 'color: blue; font-weight: bold;', { supabaseInitialized: !!supabase })
   if (!supabase) {
-    console.log('%c[设备检查-1X] supabase 未初始化，直接返回', 'color: red; font-weight: bold;')
     return { hasSession: false, hasKey: false, needPassword: true, deviceMismatch: false }
   }
 
   try {
     const { data, error } = await supabase.auth.getSession()
-    console.log('%c[设备检查-2] getSession 结果', 'color: blue;', { hasError: !!error, hasSession: !!data?.session?.user })
     if (error) {
       logError('getSession 失败', error)
       return { hasSession: false, hasKey: false, needPassword: true, deviceMismatch: false }
@@ -703,7 +668,6 @@ async function getSession() {
 
     if (!data?.session?.user) {
       log('无持久 session')
-      console.log('%c[设备检查-2X] 无持久 session，不检查设备码', 'color: orange;')
       return { hasSession: false, hasKey: false, needPassword: true, deviceMismatch: false }
     }
 
@@ -716,17 +680,13 @@ async function getSession() {
     syncSessionToBg(data.session)
 
     // 检查设备码是否匹配
-    console.log('%c[设备检查-3] 准备调用 checkDeviceMatch', 'color: blue; font-weight: bold;', { userId: data.session.user.id })
     const deviceCheck = await checkDeviceMatch(data.session.user.id)
-    console.log('%c[设备检查-4] checkDeviceMatch 返回结果', 'color: blue; font-weight: bold;', deviceCheck)
     
     if (!deviceCheck.matched) {
-      console.log('%c[设备检查-5] 设备码不匹配！进入强制下线分支', 'color: red; font-weight: bold; font-size: 14px;')
       log('设备码不匹配，强制下线')
       // 强制登出
       try {
         await supabase.auth.signOut()
-        console.log('%c[设备检查-6] supabase signOut 完成', 'color: red;')
       } catch (e) {
         logError('设备不匹配时登出失败', e)
       }
@@ -740,12 +700,8 @@ async function getSession() {
       // 设置错误信息
       const errorMsg = '⚠️ 检测到账户在其他设备登录，本机已被强制下线。这可能意味着您的密码已泄露，请重新登录后尽快修改密码！'
       authError.value = errorMsg
-      console.log('%c[设备检查-7] authError 已设置', 'color: red; font-weight: bold;', { authError: authError.value })
-      console.log('%c[设备检查-8] 强制下线完成，返回 deviceMismatch: true', 'color: red; font-weight: bold;')
       return { hasSession: false, hasKey: false, needPassword: true, deviceMismatch: true }
     }
-    
-    console.log('%c[设备检查-5X] 设备码匹配，继续正常流程', 'color: green; font-weight: bold;')
 
     const dailyStatus = await getDailyLoginStatus()
     log('今日登录状态', dailyStatus)

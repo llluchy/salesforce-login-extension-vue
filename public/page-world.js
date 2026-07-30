@@ -38,7 +38,6 @@
            rpId.endsWith('.cloudforce.com') ||
            rpId === 'salesforce.com' ||
            rpId === 'force.com';
-    console.log(`${LOG} [isSalesforceDomain] rpId="${rpId}" → ${result}`);
     return result;
   }
 
@@ -50,22 +49,11 @@
 
   function forwardToSidePanel(action, data, timeoutMs) {
     const requestId = Date.now() + '_' + Math.random().toString(36).substr(2, 6);
-    console.log(`${LOG} [forward] 发送: ${action}`, { requestId });
     return new Promise((resolve) => {
       const handler = (event) => {
         if (!event.data || event.data.source !== 'sf-extension') return;
         if (event.data.requestId !== requestId) return;
         window.removeEventListener('message', handler);
-        console.log(`${LOG} [forward] 收到响应: ${action}`, {
-          requestId,
-          hasResponse: !!event.data.data,
-          success: event.data.data?.success,
-          fallback: event.data.data?.fallback,
-          hasCredential: !!event.data.data?.credential,
-          credentialKeys: event.data.data?.credential ? Object.keys(event.data.data.credential) : [],
-          responseKeys: event.data.data?.credential?.response ? Object.keys(event.data.data.credential.response) : [],
-          error: event.data.data?.error
-        });
         resolve(event.data.data || {});
       };
       window.addEventListener('message', handler);
@@ -77,7 +65,6 @@
       }, '*');
       setTimeout(() => {
         window.removeEventListener('message', handler);
-        console.warn(`${LOG} [forward] 超时(${timeoutMs}ms): ${action}`, { requestId });
         resolve({ fallback: true, error: 'Side Panel 未响应' });
       }, timeoutMs);
     });
@@ -163,17 +150,14 @@
    */
   navigator.credentials.get = async function(options) {
     if (!options || !options.publicKey) {
-      console.log(`${LOG} [get] 无 publicKey，放行`);
       return originalGet(options);
     }
 
     const rpId = options.publicKey.rpId;
     // 仅本地判断域名，不做任何异步回执
     if (!rpId || !isSalesforceDomain(rpId)) {
-      console.log(`${LOG} [get] 非 Salesforce 域名，放行`);
       return originalGet(options);
     }
-    console.log(`${LOG} [get] Salesforce 域名匹配，转发给 Side Panel...`);
 
     // 转发全部参数给 Side Panel
     const response = await forwardToSidePanel('sf:passkeyGet', {
@@ -188,27 +172,17 @@
       timeout: options.publicKey.timeout || 60000
     }, 120000);
 
-    console.log(`${LOG} [get] Side Panel 响应:`, {
-      success: response.success,
-      fallback: response.fallback,
-      hasCredential: !!response.credential,
-      error: response.error
-    });
-
     // Side Panel 决定不处理（未登录 / 无环境 / 用户取消等）→ 回退
     if (response.fallback) {
-      console.log(`${LOG} [get] → fallback，走系统 Passkey`);
       return originalGet(options);
     }
 
     // Side Panel 处理成功 → 重建 PublicKeyCredential
     if (response.success && response.credential) {
-      console.log(`${LOG} [get] → 插件 Passkey 验证成功`);
       return rebuildPublicKeyCredential(response.credential);
     }
 
     // Side Panel 返回错误 → 抛出给 Salesforce 页面
-    console.warn(`${LOG} [get] → 错误:`, response.error);
     throw new DOMException(response.error || 'Passkey 验证取消', 'AbortError');
   };
 
@@ -244,32 +218,19 @@
       origin: window.location.origin
     }, 120000);
 
-    console.log(`${LOG} [create] 收到 Side Panel 响应`, {
-      success: response.success,
-      fallback: response.fallback,
-      hasCredential: !!response.credential,
-      credentialId: response.credential?.id?.substring(0, 20),
-      error: response.error
-    });
-
     if (response.fallback) {
-      console.log(`${LOG} [create] → fallback，走系统 Passkey`);
       return originalCreate(options);
     }
 
     if (response.success && response.credential) {
-      console.log(`${LOG} [create] → 重建 credential...`);
       try {
         const cred = rebuildPublicKeyCredential(response.credential);
-        console.log(`${LOG} [create] → credential 重建成功，返回给 Salesforce`);
         return cred;
       } catch (e) {
-        console.error(`${LOG} [create] → rebuildPublicKeyCredential 异常:`, e.message, e.stack);
         throw e;
       }
     }
 
-    console.warn(`${LOG} [create] → 未预期的响应:`, response);
     throw new DOMException(response.error || 'Passkey 注册取消', 'AbortError');
   };
 
@@ -282,16 +243,6 @@
 
     // 判断是 create(attestation) 还是 get(assertion)
     const isAttestation = !!r.attestationObject;
-
-    console.log(`${LOG} [rebuild] 开始`, {
-      isAttestation,
-      idPreview: data.id?.substring(0, 20),
-      hasClientDataJSON: !!r.clientDataJSON,
-      hasAttestationObject: !!r.attestationObject,
-      hasAuthenticatorData: !!r.authenticatorData,
-      hasSignature: !!r.signature,
-      responseKeys: Object.keys(r)
-    });
 
     const credential = {
       id: data.id,
@@ -376,5 +327,4 @@
     };
   }
 
-  console.log(`${LOG} v4.1 就绪 — 纯转发模式（不做业务判断）`);
 })();

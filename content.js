@@ -195,20 +195,16 @@ function cropImage(dataUrl, x, y, width, height) {
   window.__sfPasskeyBridgeInjected = true;
 
   const CT = '[CT]';
-  console.log(`${CT} ========== Passkey 桥接模块注入 (v4) ==========`);
-  console.log(`${CT} location:`, window.location.href);
 
   /**
    * 注入 page-world.js 到页面主世界
    * v4 架构不再需要 cbor.js / webauthn-authenticator.js / passkey-ui.js
    */
   function injectPageWorldScript() {
-    console.log(`${CT} 开始注入 page-world.js...`);
     try {
       const mainScript = document.createElement('script');
       mainScript.src = chrome.runtime.getURL('page-world.js');
       mainScript.onload = function() {
-        console.log(`${CT} page-world.js 加载完成 ✅`);
         this.remove();
       };
       mainScript.onerror = function(e) {
@@ -239,11 +235,9 @@ function cropImage(dataUrl, x, y, width, height) {
 
     const action = event.data.action;
     const requestId = event.data.requestId;
-    console.log(`${CT} [message] 收到 page-world 消息: ${action}`, { requestId });
 
     // ====== sessionGet：通过 Background 读取 session storage ======
     if (action === 'sessionGet') {
-      console.log(`${CT} [sessionGet] 转发到 Background, keys:`, event.data.data?.keys);
       try {
         const result = await chrome.runtime.sendMessage({
           action: '__sf_sessionGet',
@@ -260,7 +254,6 @@ function cropImage(dataUrl, x, y, width, height) {
     // ====== sf:passkeyGet / sf:passkeyCreate：fire-and-forget 发给 Side Panel ======
     // 响应由 sf:passkeyResult listener 接收后回传给 page-world
     if (action === 'sf:passkeyGet' || action === 'sf:passkeyCreate') {
-      console.log(`${CT} [${action}] 转发到 Side Panel (fire-and-forget)...`);
       try {
         chrome.runtime.sendMessage({
           action: action,
@@ -283,15 +276,9 @@ function cropImage(dataUrl, x, y, width, height) {
   // ====== 接收 Side Panel 的直接响应（sf:passkeyResult） ======
   chrome.runtime.onMessage.addListener((request, sender) => {
     if (request.action !== 'sf:passkeyResult') return;
-    console.log(`${CT} [passkeyResult] 收到 Side Panel 响应`, {
-      requestId: request.requestId,
-      success: request.data?.success,
-      hasCredential: !!request.data?.credential
-    });
     respondToPageWorld(request.requestId, request.data);
   });
 
-  console.log(`${CT} 开始注入脚本...`);
   injectPageWorldScript();
   console.log(`${CT} ========== 桥接模块初始化完成 (v4) ==========`);
 })();
