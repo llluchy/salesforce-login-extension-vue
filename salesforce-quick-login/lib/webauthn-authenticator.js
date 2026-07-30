@@ -47,14 +47,6 @@ const WebAuthnAuthenticator = {
     } else {
       challengeBase64url = String(options.challenge || '');
     }
-    console.log('[WA] getAssertion challenge:', {
-      type: typeof options.challenge,
-      isArrayBuffer: options.challenge instanceof ArrayBuffer,
-      isUint8Array: options.challenge instanceof Uint8Array,
-      challengePreview: challengeBase64url.substring(0, 32) + '...',
-      challengeLength: challengeBase64url.length
-    });
-
     const clientDataJSON = JSON.stringify({
       type: 'webauthn.create',
       challenge: challengeBase64url,
@@ -172,23 +164,6 @@ const WebAuthnAuthenticator = {
     const creds = storedCredentials || [];
     const allowCredentials = options.allowCredentials || [];
 
-    console.log('[WA] getAssertion 开始', {
-      rpId,
-      origin,
-      storedCredsCount: creds.length,
-      allowCredsCount: allowCredentials.length,
-      storedCredIds: creds.map(c => c.credentialId ? c.credentialId.substring(0, 16) + '...' : '(无credentialId)'),
-      storedRpIds: creds.map(c => c.rpId || '(无rpId)'),
-      allowCredIds: allowCredentials.map(c => {
-        const id = typeof c === 'string' ? c : c.id;
-        if (id instanceof ArrayBuffer || (id && id.buffer)) {
-          const bytes = new Uint8Array(id instanceof ArrayBuffer ? id : id.buffer);
-          return this._arrayBufferToBase64url(bytes).substring(0, 16) + '...';
-        }
-        return typeof id === 'string' ? id.substring(0, 16) + '...' : '(未知类型)';
-      })
-    });
-
     let matchedCredential = null;
 
     if (allowCredentials.length > 0) {
@@ -204,12 +179,6 @@ const WebAuthnAuthenticator = {
         } else if (typeof allowCred.id === 'string') {
           credId = allowCred.id;
         }
-        
-        console.log('[WA] getAssertion 尝试匹配 allowCred:', {
-          credIdPreview: credId ? credId.substring(0, 16) + '...' : '(空)',
-          credIdLength: credId ? credId.length : 0
-        });
-
         // 优先用 credentialId 精确匹配
         matchedCredential = creds.find(c => {
           if (!c.credentialId) return false;
@@ -219,7 +188,6 @@ const WebAuthnAuthenticator = {
           return stored === allowed;
         });
         if (matchedCredential) {
-          console.log('[WA] getAssertion 精确匹配成功!', { credIdPreview: credId.substring(0, 16) + '...' });
           break;
         }
       }
@@ -227,36 +195,12 @@ const WebAuthnAuthenticator = {
     
     // 如果 allowCredentials 为空（discoverable credential），直接用 rpId 匹配
     if (!matchedCredential && allowCredentials.length === 0) {
-      console.log('[WA] getAssertion allowCredentials 为空，使用 rpId 匹配');
       matchedCredential = creds.find(c => c.rpId === rpId);
     }
 
     if (!matchedCredential) {
-      console.error('[WA] getAssertion 未找到匹配凭证！', {
-        rpId,
-        storedCount: creds.length,
-        allowCount: allowCredentials.length,
-        storedDetails: creds.map(c => ({
-          credentialId: c.credentialId ? c.credentialId.substring(0, 16) + '...' : null,
-          rpId: c.rpId
-        })),
-        allowDetails: allowCredentials.map(c => {
-          const id = typeof c === 'string' ? c : c.id;
-          if (id instanceof ArrayBuffer || (id && id.buffer)) {
-            const bytes = new Uint8Array(id instanceof ArrayBuffer ? id : id.buffer);
-            return this._arrayBufferToBase64url(bytes).substring(0, 16) + '...';
-          }
-          return typeof id === 'string' ? id.substring(0, 16) + '...' : '(未知)';
-        })
-      });
       return null;
     }
-
-    console.log('[WA] getAssertion 使用凭证:', {
-      credentialId: matchedCredential.credentialId ? matchedCredential.credentialId.substring(0, 16) + '...' : '(无)',
-      rpId: matchedCredential.rpId,
-      hasPrivateKey: !!matchedCredential.privateKeyJwk
-    });
 
     const privateKey = await crypto.subtle.importKey(
       'jwk',
