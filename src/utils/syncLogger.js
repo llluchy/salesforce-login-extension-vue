@@ -38,41 +38,25 @@ const byteSize = (obj) => {
 export const syncLog = {
   // 普通信息
   info(action, detail) {
-    if (!isDebug()) return
-    if (detail !== undefined) {
-      console.log(`${TAG} ${action}`, detail)
-    } else {
-      console.log(`${TAG} ${action}`)
-    }
   },
 
   // 成功
   ok(action, detail) {
-    if (!isDebug()) return
-    console.log(`%c${TAG} ✓ ${action}`, 'color:#1976d2;font-weight:600', detail || '')
   },
 
   // 警告
   warn(action, detail) {
-    if (!isDebug()) return
-    console.warn(`${TAG} ⚠ ${action}`, detail || '')
   },
 
   // 错误
   error(action, err) {
-    if (!isDebug()) return
-    console.error(`${TAG} ✗ ${action}`, err || '')
   },
 
   // 分组
   group(title) {
-    if (!isDebug()) return
-    console.groupCollapsed(`%c${TAG} ${title}`, 'color:#0d47a1;font-weight:600')
   },
 
   groupEnd() {
-    if (!isDebug()) return
-    console.groupEnd()
   },
 
   // 工具方法

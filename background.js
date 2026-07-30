@@ -3,14 +3,8 @@
 // 在 Service Worker 控制台查看（chrome://extensions → 检查视图 service worker）
 // ============================================
 const _BG_TAG = '[CloudSync/BG]'
-const _bgLog = (action, detail) => {
-  if (detail !== undefined) {
-    console.log(`${_BG_TAG} ${action}`, detail)
-  } else {
-    console.log(`${_BG_TAG} ${action}`)
-  }
-}
-const _bgWarn = (action, detail) => console.warn(`${_BG_TAG} ⚠ ${action}`, detail || '')
+const _bgLog = (action, detail) => {}
+const _bgWarn = (action, detail) => {}
 const _bgErr = (action, err) => console.error(`${_BG_TAG} ✗ ${action}`, err || '')
 
 // Service Worker 启动时输出环境信息
@@ -320,11 +314,12 @@ async function handleSoapLogin(request, sendResponse) {
 
     const xmlText = await response.text();
 
-    sendResponse({
+    const result = {
       success: true,
       ok: response.ok,
       xmlText: xmlText
-    });
+    };
+    sendResponse(result);
 
   } catch (error) {
     sendResponse({ success: false, error: error.message });

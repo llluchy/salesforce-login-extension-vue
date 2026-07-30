@@ -56,12 +56,10 @@ async function setLocal(key, value) {
  * @returns {Promise<{skipped?: boolean, success?: boolean, reason?: string, migrated?: {environments: number, groups: number, passkeys: number}}>}
  */
 export async function migrateLocalToSupabase() {
-  console.log('[Migration] 开始检查本地数据迁移')
 
   // 1. 检查迁移标记
   const migrated = await readLocal(MIGRATION_FLAG_KEY)
   if (migrated === true) {
-    console.log('[Migration] 已迁移过，跳过')
     return { skipped: true, reason: '已迁移过' }
   }
 
@@ -74,8 +72,6 @@ export async function migrateLocalToSupabase() {
   const groupCount = Array.isArray(oldGroups) ? oldGroups.length : 0
   const passkeyCount = Array.isArray(oldPasskeys) ? oldPasskeys.length : 0
 
-  console.log('[Migration] 本地旧数据', { envCount, groupCount, passkeyCount })
-
   if (envCount === 0 && groupCount === 0 && passkeyCount === 0) {
     // 无本地数据，直接标记迁移完成（避免后续重复检查）
     await setLocal(MIGRATION_FLAG_KEY, true)
@@ -86,13 +82,11 @@ export async function migrateLocalToSupabase() {
   const { loadEnvironments, saveEnvironments, saveGroups, savePasskeyCredential } = useStorage()
   const existingEnvs = await loadEnvironments()
   if (existingEnvs.length > 0) {
-    console.log('[Migration] 云端已有数据，跳过迁移')
     await setLocal(MIGRATION_FLAG_KEY, true)
     return { skipped: true, reason: '云端已有数据' }
   }
 
   // 4. 加密 + upsert 到 Supabase
-  console.log('[Migration] 开始上传本地数据到 Supabase')
   try {
     if (envCount > 0) {
       // 清理 env 的临时 id（让 Supabase 生成 UUID）
@@ -130,12 +124,6 @@ export async function migrateLocalToSupabase() {
 
     // 5. 标记迁移完成
     await setLocal(MIGRATION_FLAG_KEY, true)
-
-    console.log('[Migration] 迁移完成', {
-      environments: envCount,
-      groups: groupCount,
-      passkeys: migratedPasskeys
-    })
 
     return {
       success: true,

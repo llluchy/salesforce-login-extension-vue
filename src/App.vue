@@ -457,12 +457,6 @@ const handleLogin = async (env) => {
         passkeysToStore = Object.values(env.passkeys);
       }
       const hasPrivateKey = passkeysToStore.length > 0 && passkeysToStore.every(pk => !!pk.privateKeyJwk);
-      console.log('[handleLogin] 存储 pendingLoginEnv', { 
-        envId: env.id, 
-        passkeyCount: passkeysToStore.length,
-        hasPrivateKey: hasPrivateKey,
-        firstPkFields: passkeysToStore.length > 0 ? Object.keys(passkeysToStore[0]) : []
-      });
       await chrome.storage.session.set({
         pendingLoginEnv: {
           id: env.id,
@@ -524,7 +518,6 @@ const handleExportBackup = async () => {
 
     showToast(`已导出 ${creds.length} 个凭证、${envs.length} 个环境`, 'success')
   } catch (error) {
-    console.error('Export backup error:', error)
     showToast(error.message || '导出失败', 'error')
   }
 }
@@ -574,45 +567,11 @@ const handleImportBackup = async (event) => {
 
     showToast(`导入完成：新增 ${credCount} 个凭证、${envCount} 个环境`, 'success')
   } catch (error) {
-    console.error('Import backup error:', error)
     showToast(error.message || '导入失败：文件格式错误', 'error')
   }
 }
 
-// ========== 手动绑定 Passkey 凭证 ==========
 
-const openManualBind = (env = null) => {
-  manualBindEnv.value = env
-  manualBindVisible.value = true
-}
-
-const closeManualBind = () => {
-  manualBindVisible.value = false
-  manualBindEnv.value = null
-}
-
-const handleManualBound = async ({ envId, credentialId, rpId }) => {
-  if (envId) {
-    const env = environments.value.find(e => e.id === envId)
-    if (env) {
-      if (!env.passkeys) env.passkeys = []
-      const existing = env.passkeys.find(pk => pk.credentialId === credentialId)
-      if (!existing) {
-        env.passkeys.push({
-          id: 'pk_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-          credentialId,
-          rpId: rpId || 'salesforce.com',
-          createdAt: Date.now()
-        })
-        await saveEnvironments(environments.value)
-      }
-    }
-  }
-  showToast('凭证已绑定', 'success')
-}
-
-// 暴露给外部调用（例如环境卡片右键菜单）
-defineExpose({ openManualBind })
 
 const handleShowTotp = async (env) => {
   if (env.totpSecret) {
@@ -622,7 +581,7 @@ const handleShowTotp = async (env) => {
       try {
         await fillTotpCode(code)
       } catch (e) {
-        console.log('Auto-fill failed, code:', code)
+        // Auto-fill failed silently
       }
     } else {
       showToast('无法生成验证码', 'error')
@@ -767,14 +726,8 @@ const closeToast = () => {
 const loadData = async () => {
   syncLog.group('App.loadData 加载数据')
   try {
-    console.log('[App] loadData 开始，当前 isAuthed:', isAuthed.value)
-    console.log('[App] loadData 当前 currentUser:', currentUser.value)
-    
     environments.value = await loadEnvironments()
-    console.log('[App] loadEnvironments 返回', environments.value.length, '个环境')
-    
     groups.value = await loadGroups()
-    console.log('[App] loadGroups 返回', groups.value.length, '个分组')
     
     syncLog.info('加载完成', {
       envs: environments.value.length,
@@ -796,7 +749,6 @@ let _onAuthedRunning = false
 
 const onAuthed = async () => {
   if (_onAuthedRunning) {
-    console.log('[App] onAuthed 正在执行中，跳过重复触发')
     return
   }
   _onAuthedRunning = true
@@ -804,34 +756,25 @@ const onAuthed = async () => {
 
   // 首次登录时尝试迁移本地旧数据到 Supabase（云端有数据则自动跳过）
   try {
-    console.log('[App] onAuthed 开始迁移检查')
     const result = await migrateLocalToSupabase()
-    console.log('[App] onAuthed 迁移结果', result)
     if (result?.success) {
       const m = result.migrated
       showToast(`已迁移 ${m.environments} 个环境、${m.groups} 个分组、${m.passkeys} 个凭证到云端`, 'success')
     }
   } catch (e) {
     syncLog.error('迁移本地数据失败', e)
-    console.error('[App] onAuthed 迁移异常', e)
   }
 
-  console.log('[App] onAuthed 初始化 Passkey Bridge')
   try {
     initPasskeyBridge()
-    console.log('[App] onAuthed Passkey Bridge 初始化完成')
   } catch (e) {
     syncLog.error('初始化 Passkey Bridge 失败', e)
-    console.error('[App] onAuthed Passkey Bridge 异常', e)
   }
 
-  console.log('[App] onAuthed 调用 loadData')
   try {
     await loadData()
-    console.log('[App] onAuthed loadData 完成')
   } catch (e) {
     syncLog.error('加载数据失败', e)
-    console.error('[App] onAuthed loadData 异常', e)
   } finally {
     _onAuthedRunning = false
   }
@@ -843,9 +786,8 @@ let _authTriggered = false
 watch(isAuthed, (newVal, oldVal) => {
   if (newVal === true && oldVal === false && !_authTriggered) {
     _authTriggered = true
-    console.log('[App] watch isAuthed 触发 onAuthed')
     onAuthed().catch(err => {
-      console.error('[App] watch onAuthed 异常', err)
+      // silent
     }).finally(() => {
       _authTriggered = false
     })
@@ -872,7 +814,7 @@ const handleShareAccepted = async () => {
     environments.value = envs
     showToast('已添加副环境')
   } catch (e) {
-    console.error('[App] handleShareAccepted 刷新失败', e)
+    // silent
   }
 }
 

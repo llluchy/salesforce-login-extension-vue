@@ -138,7 +138,6 @@ const refreshTotpCode = async () => {
     try {
       await fillTotpCode(currentTotpCode.value)
     } catch (e) {
-      console.log('Auto-fill failed')
     }
   }
 }

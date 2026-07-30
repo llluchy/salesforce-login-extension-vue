@@ -22,8 +22,6 @@ const isChromeSession = typeof chrome !== 'undefined' && chrome.storage && chrom
 
 const TAG = '[Supabase/Storage]'
 const log = (action, detail) => {
-  if (detail !== undefined) console.log(`${TAG} ${action}`, detail)
-  else console.log(`${TAG} ${action}`)
 }
 const logError = (action, err) => console.error(`${TAG} ✗ ${action}`, err)
 const logWarn = (action, detail) => console.warn(`${TAG} ⚠ ${action}`, detail)
@@ -121,8 +119,6 @@ export function useStorage() {
     const supabase = getSupabase()
     const key = getCryptoKey()
 
-    console.log('[Storage] loadEnvironments 检查', { hasSupabase: !!supabase, hasKey: !!key })
-
     if (!supabase) {
       logWarn('Supabase 未初始化，使用本地缓存')
       const cached = await cacheGet(STORAGE_KEY)
@@ -139,14 +135,11 @@ export function useStorage() {
     }
 
     try {
-      console.log('[Storage] loadEnvironments 开始查询 Supabase')
       const { data, error } = await supabase
         .from('environments')
         .select('*')
         .eq('is_deleted', false)
         .order('sort_order', { ascending: true })
-
-      console.log('[Storage] loadEnvironments 查询结果', { dataLength: data?.length, error: error?.message })
 
       if (error) throw new Error('Supabase 查询失败：' + error.message)
 
@@ -298,18 +291,13 @@ export function useStorage() {
         .order('sort_order', { ascending: true })
       if (error) throw new Error('Supabase 查询失败：' + error.message)
 
-      console.log('[Storage] loadGroups 从 Supabase 获取到', (data || []).length, '条原始数据')
-      console.log('[Storage] loadGroups 原始数据:', JSON.stringify(data || [], null, 2))
-
       const groups = (data || []).map(decryptGroup)
       log('读取成功', { count: groups.length, ids: groups.map(g => g.id) })
       await cacheSet(STORAGE_KEY_GROUPS, groups)
       return groups
     } catch (e) {
       logError('从 Supabase 读取分组失败，fallback 到本地缓存', e)
-      console.error('[Storage] loadGroups 失败详情:', e)
       const cached = await cacheGet(STORAGE_KEY_GROUPS)
-      console.log('[Storage] loadGroups fallback 到缓存，缓存数据:', cached ? cached.length : 0, '条')
       return Array.isArray(cached) ? cached : []
     }
   }
