@@ -211,9 +211,9 @@
     .footer-links { display: flex; gap: 24px; justify-content: center; margin-bottom: 16px; }
 
     /* ---- lang toggle ---- */
-    .lang-en, .lang-cn { display: none; }
-    :root.lang-en .lang-en { display: inherit; }
-    :root.lang-cn .lang-cn { display: inherit; }
+    .lang-en, .lang-cn { display: none !important; }
+    :root.lang-en .lang-en { display: revert !important; }
+    :root.lang-cn .lang-cn { display: revert !important; }
 
     /* ---- responsive ---- */
     @media (max-width: 640px) {
