@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - Salesforce Quick Login</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.7;
+      color: #333;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      background: #fafafa;
+    }
+    h1 {
+      font-size: 28px;
+      margin-bottom: 8px;
+      color: #00A1E0;
+    }
+    .subtitle {
+      color: #888;
+      font-size: 14px;
+      margin-bottom: 32px;
+    }
+    h2 {
+      font-size: 20px;
+      margin: 32px 0 12px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #e0e0e0;
+      color: #222;
+    }
+    h3 {
+      font-size: 16px;
+      margin: 20px 0 8px;
+      color: #444;
+    }
+    p, li {
+      margin-bottom: 10px;
+    }
+    ul, ol {
+      padding-left: 24px;
+      margin-bottom: 16px;
+    }
+    li {
+      margin-bottom: 6px;
+    }
+    strong {
+      color: #000;
+    }
+    .highlight {
+      background: #e8f4fc;
+      border-left: 4px solid #00A1E0;
+      padding: 16px 20px;
+      margin: 20px 0;
+      border-radius: 0 6px 6px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 10px 14px;
+      text-align: left;
+    }
+    th {
+      background: #f5f7fa;
+      font-weight: 600;
+    }
+    tr:nth-child(even) {
+      background: #fafafa;
+    }
+    code {
+      background: #f0f0f0;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 13px;
+    }
+    .lang-switch {
+      text-align: right;
+      margin-bottom: 20px;
+    }
+    .lang-switch a {
+      color: #00A1E0;
+      text-decoration: none;
+      font-size: 14px;
+      padding: 4px 12px;
+      border-radius: 4px;
+    }
+    .lang-switch a:hover {
+      background: #e8f4fc;
+    }
+    .lang-switch a.active {
+      font-weight: 600;
+      background: #e8f4fc;
+    }
+    .content-zh { display: none; }
+    hr {
+      border: none;
+      border-top: 1px solid #e0e0e0;
+      margin: 40px 0;
+    }
+    footer {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid #e0e0e0;
+      text-align: center;
+      color: #888;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="lang-switch">
+    <a href="javascript:void(0)" onclick="showLang('en')" id="btn-en" class="active">English</a>
+    <a href="javascript:void(0)" onclick="showLang('zh')" id="btn-zh">中文</a>
+  </div>
+
+  <!-- English Content -->
+  <div id="content-en" class="content-en">
+    <h1>Privacy Policy for Salesforce Quick Login</h1>
+    <p class="subtitle">Last updated: July 10, 2026</p>
+
+    <h2>Overview</h2>
+    <p>Salesforce Quick Login ("the extension") is a browser extension that allows users to store and manage their Salesforce login credentials for one-click login to Salesforce orgs. This privacy policy explains how the extension handles user data.</p>
+
+    <h2>Data Collection</h2>
+    <div class="highlight">
+      <strong>The extension does NOT collect, transmit, or share any personal data with the extension developer or any third-party servers.</strong>
+    </div>
+    <p>All data entered by the user (Salesforce usernames, passwords, security tokens, TOTP secrets, and environment configurations) is stored <strong>locally</strong> in the browser using <code>chrome.storage.sync</code> and <code>chrome.storage.local</code> APIs.</p>
+
+    <h2>Data Storage</h2>
+    <ul>
+      <li><strong>chrome.storage.sync</strong>: Data is synchronized through the user's own Google account via Chrome's built-in sync feature. The extension developer has no access to this data.</li>
+      <li><strong>chrome.storage.local</strong>: A local backup copy is stored in the browser's local storage.</li>
+      <li><strong>No external servers</strong>: The extension does not connect to any external servers, databases, or APIs operated by the developer. All operations happen entirely within the user's browser.</li>
+    </ul>
+
+    <h2>Data Usage</h2>
+    <p>The stored credentials are used solely for:</p>
+    <ol>
+      <li><strong>Auto-login</strong>: Automatically filling in Salesforce login forms when the user initiates a login</li>
+      <li><strong>MFA/TOTP</strong>: Generating time-based one-time passwords for Salesforce MFA authentication</li>
+      <li><strong>Session management</strong>: Opening Salesforce orgs via frontdoor.jsp with the stored session ID</li>
+    </ol>
+
+    <h2>Data Security</h2>
+    <ul>
+      <li>Credentials are stored in Chrome's encrypted storage</li>
+      <li>The extension does not transmit credentials to any server other than Salesforce's own login endpoints</li>
+      <li>SOAP API login requests are sent directly to Salesforce servers (login.salesforce.com, test.salesforce.com, or custom Salesforce domains)</li>
+      <li>Form submission login sends credentials directly to Salesforce's login endpoints</li>
+    </ul>
+
+    <h2>Permissions Explanation</h2>
+    <table>
+      <tr>
+        <th>Permission</th>
+        <th>Purpose</th>
+      </tr>
+      <tr>
+        <td><code>storage</code></td>
+        <td>Store environment configurations and credentials</td>
+      </tr>
+      <tr>
+        <td><code>sidePanel</code></td>
+        <td>Display the extension UI in Chrome's side panel</td>
+      </tr>
+      <tr>
+        <td><code>tabs</code></td>
+        <td>Open new tabs for Salesforce login</td>
+      </tr>
+      <tr>
+        <td><code>activeTab</code></td>
+        <td>Capture screenshots for QR code scanning</td>
+      </tr>
+      <tr>
+        <td><code>clipboardWrite</code></td>
+        <td>Copy TOTP codes to clipboard</td>
+      </tr>
+      <tr>
+        <td><code>scripting</code></td>
+        <td>Inject login forms and TOTP codes into Salesforce pages</td>
+      </tr>
+      <tr>
+        <td><code>host_permissions</code> (Salesforce domains)</td>
+        <td>Access Salesforce login pages and APIs</td>
+      </tr>
+    </table>
+
+    <h2>Third-Party Services</h2>
+    <p>The extension interacts only with Salesforce's official login endpoints. No other third-party services are used.</p>
+
+    <h2>Data Deletion</h2>
+    <p>Users can delete all stored data at any time by:</p>
+    <ol>
+      <li>Removing individual environments through the extension UI</li>
+      <li>Uninstalling the extension (this removes all stored data)</li>
+      <li>Clearing browser data in Chrome settings</li>
+    </ol>
+
+    <h2>User Consent</h2>
+    <p>By installing and using this extension, the user consents to the storage of their Salesforce credentials in Chrome's local and sync storage as described above.</p>
+
+    <h2>Changes to This Policy</h2>
+    <p>Any changes to this privacy policy will be updated in this document and reflected in future extension updates.</p>
+
+    <h2>Contact</h2>
+    <p>For privacy concerns or questions, please open an issue on the extension's <a href="https://github.com/llluchy/salesforce-login-extension">GitHub repository</a>.</p>
+  </div>
+
+  <!-- Chinese Content -->
+  <div id="content-zh" class="content-zh">
+    <h1>隐私政策 - Salesforce Quick Login</h1>
+    <p class="subtitle">最后更新：2026年7月10日</p>
+
+    <h2>概述</h2>
+    <p>Salesforce Quick Login（"本插件"）是一个浏览器插件，允许用户存储和管理 Salesforce 登录凭证，实现一键登录 Salesforce 环境。本隐私政策说明插件如何处理用户数据。</p>
+
+    <h2>数据收集</h2>
+    <div class="highlight">
+      <strong>本插件不会向插件开发者或任何第三方服务器收集、传输或共享任何个人数据。</strong>
+    </div>
+    <p>用户输入的所有数据（Salesforce 用户名、密码、安全令牌、TOTP 密钥和环境配置）均使用 <code>chrome.storage.sync</code> 和 <code>chrome.storage.local</code> API <strong>本地</strong>存储在浏览器中。</p>
+
+    <h2>数据存储</h2>
+    <ul>
+      <li><strong>chrome.storage.sync</strong>：数据通过用户自己的 Google 账号同步，使用 Chrome 内置的同步功能。插件开发者无法访问此数据。</li>
+      <li><strong>chrome.storage.local</strong>：在浏览器本地存储中保留备份副本。</li>
+      <li><strong>无外部服务器</strong>：插件不连接任何由开发者运营的外部服务器、数据库或 API。所有操作完全在用户浏览器内完成。</li>
+    </ul>
+
+    <h2>数据用途</h2>
+    <p>存储的凭证仅用于：</p>
+    <ol>
+      <li><strong>自动登录</strong>：用户发起登录时自动填写 Salesforce 登录表单</li>
+      <li><strong>MFA/TOTP</strong>：为 Salesforce MFA 认证生成基于时间的一次性密码</li>
+      <li><strong>会话管理</strong>：使用存储的会话 ID 通过 frontdoor.jsp 打开 Salesforce 环境</li>
+    </ol>
+
+    <h2>数据安全</h2>
+    <ul>
+      <li>凭证存储在 Chrome 的加密存储中</li>
+      <li>插件不会将凭证传输到 Salesforce 自有登录端点以外的任何服务器</li>
+      <li>SOAP API 登录请求直接发送到 Salesforce 服务器（login.salesforce.com、test.salesforce.com 或自定义 Salesforce 域名）</li>
+      <li>表单提交登录将凭证直接发送到 Salesforce 的登录端点</li>
+    </ul>
+
+    <h2>权限说明</h2>
+    <table>
+      <tr>
+        <th>权限</th>
+        <th>用途</th>
+      </tr>
+      <tr>
+        <td><code>storage</code></td>
+        <td>存储环境配置和凭证</td>
+      </tr>
+      <tr>
+        <td><code>sidePanel</code></td>
+        <td>在 Chrome 侧边栏中显示插件界面</td>
+      </tr>
+      <tr>
+        <td><code>tabs</code></td>
+        <td>打开新标签页进行 Salesforce 登录</td>
+      </tr>
+      <tr>
+        <td><code>activeTab</code></td>
+        <td>截取屏幕截图用于二维码扫描</td>
+      </tr>
+      <tr>
+        <td><code>clipboardWrite</code></td>
+        <td>复制 TOTP 验证码到剪贴板</td>
+      </tr>
+      <tr>
+        <td><code>scripting</code></td>
+        <td>向 Salesforce 页面注入登录表单和 TOTP 验证码</td>
+      </tr>
+      <tr>
+        <td><code>host_permissions</code>（Salesforce 域名）</td>
+        <td>访问 Salesforce 登录页面和 API</td>
+      </tr>
+    </table>
+
+    <h2>第三方服务</h2>
+    <p>本插件仅与 Salesforce 官方登录端点交互。不使用任何其他第三方服务。</p>
+
+    <h2>数据删除</h2>
+    <p>用户可以随时通过以下方式删除所有存储的数据：</p>
+    <ol>
+      <li>通过插件界面删除单个环境</li>
+      <li>卸载插件（将删除所有存储的数据）</li>
+      <li>在 Chrome 设置中清除浏览器数据</li>
+    </ol>
+
+    <h2>用户同意</h2>
+    <p>安装和使用本插件即表示用户同意上述将 Salesforce 凭证存储在 Chrome 本地和同步存储中的方式。</p>
+
+    <h2>政策变更</h2>
+    <p>本隐私政策的任何变更将在本文档中更新，并在未来的插件更新中体现。</p>
+
+    <h2>联系方式</h2>
+    <p>如有隐私问题或疑问，请在插件的 <a href="https://github.com/llluchy/salesforce-login-extension">GitHub 仓库</a> 中提交 issue。</p>
+  </div>
+
+  <footer>
+    &copy; 2026 Salesforce Quick Login. All rights reserved.
+  </footer>
+
+  <script>
+    function showLang(lang) {
+      document.getElementById('content-en').style.display = lang === 'en' ? 'block' : 'none';
+      document.getElementById('content-zh').style.display = lang === 'zh' ? 'block' : 'none';
+      document.getElementById('btn-en').classList.toggle('active', lang === 'en');
+      document.getElementById('btn-zh').classList.toggle('active', lang === 'zh');
+    }
+  </script>
+</body>
+</html>
