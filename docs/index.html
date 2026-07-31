@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN" class="lang-cn">
 <head>
   <meta charset="UTF-8">
@@ -6,8 +6,6 @@
   <title>Salesforce Quick Login — Chrome Extension</title>
   <meta name="description" content="One-click Salesforce login with Passkey authentication, TOTP 2FA, encrypted cloud sync and environment sharing.">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@300;400;500;700&display=swap');
-
     :root {
       --sf-blue: #0176D3;
       --sf-deep: #032D60;
@@ -34,7 +32,7 @@
     body {
       background: var(--bg-void);
       color: var(--text-primary);
-      font-family: 'Noto Sans SC', 'Segoe UI', system-ui, sans-serif;
+      font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
       line-height: 1.7;
       -webkit-font-smoothing: antialiased;
     }
@@ -64,7 +62,7 @@
       display: flex; align-items: center; justify-content: space-between; height: 56px;
     }
     .nav-logo {
-      font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600;
+      font-family: 'Consolas', 'Courier New', monospace; font-size: 14px; font-weight: 600;
       color: var(--sf-blue); letter-spacing: 0.5px;
     }
     .nav-links { display: flex; gap: 24px; list-style: none; }
@@ -89,7 +87,7 @@
       display: inline-flex; align-items: center; gap: 8px;
       background: rgba(1,118,211,0.1); border: 1px solid rgba(1,118,211,0.2);
       padding: 6px 16px; border-radius: 100px; font-size: 12px;
-      color: var(--sf-blue); font-family: 'JetBrains Mono', monospace; margin-bottom: 28px;
+      color: var(--sf-blue); font-family: 'Consolas', 'Courier New', monospace; margin-bottom: 28px;
     }
     .hero-badge .dot { width: 6px; height: 6px; background: var(--lock-green); border-radius: 50%; }
     .hero h1 {
@@ -118,7 +116,7 @@
     /* ---- sections ---- */
     .section { padding: 80px 0; }
     .section-label {
-      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      font-family: 'Consolas', 'Courier New', monospace; font-size: 11px;
       color: var(--sf-blue); text-transform: uppercase; letter-spacing: 2px;
       margin-bottom: 12px;
     }
@@ -163,7 +161,7 @@
       width: 44px; height: 44px; border-radius: var(--radius-sm);
       background: rgba(1,118,211,0.1); color: var(--sf-blue);
       display: flex; align-items: center; justify-content: center;
-      font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 600;
+      font-family: 'Consolas', 'Courier New', monospace; font-size: 16px; font-weight: 600;
     }
     .step-num::before { content: '0' counter(step); }
     .step-body h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
@@ -177,14 +175,14 @@
       text-align: left; padding: 12px 16px; font-size: 13px;
     }
     .perm-table th {
-      font-family: 'JetBrains Mono', monospace; font-weight: 500;
+      font-family: 'Consolas', 'Courier New', monospace; font-weight: 500;
       color: var(--text-muted); border-bottom: 1px solid var(--border-subtle);
       font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
     }
     .perm-table td { border-bottom: 1px solid var(--border-subtle); }
     .perm-table code {
       background: var(--bg-hover); padding: 2px 8px; border-radius: 4px;
-      font-family: 'JetBrains Mono', monospace; font-size: 12px;
+      font-family: 'Consolas', 'Courier New', monospace; font-size: 12px;
       color: var(--warn-amber);
     }
 
