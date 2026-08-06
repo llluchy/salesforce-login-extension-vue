@@ -4,3 +4,4 @@ dist/
 .DS_Store
 .git-credentials*
 github-token.txt
+.trae/
