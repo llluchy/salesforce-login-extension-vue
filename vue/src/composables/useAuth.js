@@ -12,10 +12,14 @@ import { ref, readonly } from 'vue'
 import { getSupabase } from './useSupabase'
 import { deriveKey, generateSalt, bytesToBase64, exportKeyToJwk, importKeyFromJwk, getDeviceCode } from '../utils/crypto'
 import { STORAGE_KEY_SESSION } from '../utils/constants'
+import { SIGNUP_REDIRECT_URL, RESET_PASSWORD_REDIRECT_URL } from '../utils/supabaseConfig'
 
 const CRYPTO_KEY_KEY = '__sf_crypto_key'
 const LAST_LOGIN_DATE_KEY = '__sf_last_login_date'
 const LOGIN_COUNT_KEY = '__sf_login_count'
+
+const SESSION_KEY_USER_KEY_JWK = 'sf_userKeyJwk'
+const SESSION_KEY_LOGGED_IN = 'sf_isLoggedIn'
 
 // ============================================
 // 全局单例状态（多个组件共享同一份认证态）
@@ -164,6 +168,54 @@ async function loadCryptoKey() {
 async function clearCryptoKey() {
   const s = getStorage()
   await s.set({ [CRYPTO_KEY_KEY]: null })
+}
+
+/**
+ * 导出当前 userKey 到 chrome.storage.session（供 passkeyUI 使用）
+ * Side Panel 关闭后 session 仍然存在（内存存储，浏览器关闭才清除）
+ */
+async function exportUserKeyToSession() {
+  if (!cryptoKey.value) {
+    console.warn('[Auth] exportUserKeyToSession 跳过：cryptoKey 为空')
+    return
+  }
+  try {
+    const jwk = await exportKeyToJwk(cryptoKey.value)
+    if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+      const payload = {
+        [SESSION_KEY_USER_KEY_JWK]: jwk,
+        [SESSION_KEY_LOGGED_IN]: true
+      }
+      await chrome.storage.session.set(payload)
+      console.log('[Auth] userKey 已导出到 session storage', {
+        keys: Object.keys(payload),
+        loggedInKey: SESSION_KEY_LOGGED_IN,
+        value: true
+      })
+      // 验证一下是否存储成功
+      const verify = await chrome.storage.session.get([SESSION_KEY_LOGGED_IN, SESSION_KEY_USER_KEY_JWK])
+      console.log('[Auth] session storage 验证结果', verify)
+    } else {
+      console.warn('[Auth] chrome.storage.session 不可用')
+    }
+  } catch (e) {
+    logError('导出 userKey 到 session 失败', e)
+  }
+}
+
+/**
+ * 清除 session storage 中的 userKey（登出时调用）
+ */
+async function clearSessionKeys() {
+  if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+    await chrome.storage.session.remove([
+      SESSION_KEY_USER_KEY_JWK,
+      SESSION_KEY_LOGGED_IN,
+      'sf_environments',
+      'pendingLoginEnv'
+    ])
+    log('session storage 已清除')
+  }
 }
 
 // ============================================
@@ -470,6 +522,7 @@ function ensureListener() {
       _saltBytes = null
       isAuthed.value = false
       clearSessionFromBg()
+      clearSessionKeys()
       return
     }
 
@@ -509,7 +562,7 @@ async function signUp({ email, password }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: undefined }
+      options: { emailRedirectTo: SIGNUP_REDIRECT_URL }
     })
 
     if (error) throw error
@@ -525,6 +578,7 @@ async function signUp({ email, password }) {
       syncSessionToBg(data.session)
       await saveCryptoKey(cryptoKey.value)
       await recordLogin()
+      await exportUserKeyToSession()
       // 更新设备码到数据库
       const deviceCode = getDeviceCode()
       await updateDeviceCode(data.user.id, deviceCode)
@@ -581,6 +635,7 @@ async function signIn({ email, password }) {
     syncSessionToBg(data.session)
     await saveCryptoKey(cryptoKey.value)
     await recordLogin()
+    await exportUserKeyToSession()
     
     // 更新设备码到数据库
     const deviceCode = getDeviceCode()
@@ -618,6 +673,7 @@ async function signOut() {
     clearSessionFromBg()
     clearUnlockRecord()
     clearCryptoKey()
+    clearSessionKeys()
     log('已登出')
   }
 }
@@ -742,6 +798,7 @@ async function unlockWithPassword(password) {
     isAuthed.value = true
     await saveCryptoKey(cryptoKey.value)
     await recordLogin()
+    await exportUserKeyToSession()
     
     // 更新设备码到数据库
     const deviceCode = getDeviceCode()
@@ -903,7 +960,9 @@ async function resetPassword(email) {
     const supabase = getSupabase()
     if (!supabase) throw new Error('Supabase 未初始化')
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email)
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: RESET_PASSWORD_REDIRECT_URL
+    })
     if (error) throw error
     log('重置邮件已发送', { email })
     return { success: true }
