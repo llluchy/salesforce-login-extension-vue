@@ -1,16 +1,15 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
+<html lang="zh-CN" data-immersive-translate-page-theme="light" class=""><head><style data-id="immersive-translate-input-injected-css"></style></head><body>&lt;&lt;&lt;&lt;&lt;&lt;&lt; HEAD
+
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Salesforce Quick Login - 欢迎</title>
+  <title>Salesforce Quick Login - Chrome 扩展</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-      line-height: 1.6;
-      color: #333;
-      background: linear-gradient(135deg, #f5f7fa 0%, #e8f0fe 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
@@ -19,137 +18,1179 @@
       padding: 40px 20px;
     }
     .card {
-      background: #fff;
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
       border-radius: 16px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-      max-width: 680px;
-      width: 100%;
       padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
       text-align: center;
     }
     .logo {
-      width: 80px;
-      height: 80px;
-      background: #00A1E0;
-      border-radius: 20px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 0 auto 24px;
-    }
-    .logo svg {
-      width: 44px;
-      height: 44px;
-      fill: #fff;
+      font-family: 'Consolas', monospace;
+      font-size: 13px;
+      color: #0176D3;
+      letter-spacing: 1px;
+      margin-bottom: 24px;
     }
     h1 {
-      font-size: 28px;
+      font-size: 26px;
+      font-weight: 700;
       margin-bottom: 8px;
-      color: #1a1a2e;
     }
-    .subtitle {
-      color: #666;
-      font-size: 16px;
-      margin-bottom: 32px;
-    }
-    .features {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      margin-bottom: 32px;
-      text-align: left;
-    }
-    .feature-item {
-      background: #f8fafc;
-      border-radius: 12px;
-      padding: 16px;
-      border: 1px solid #e8edf4;
-    }
-    .feature-item h3 {
+    h1 span { color: #0176D3; }
+    .desc {
+      color: #8b95a5;
       font-size: 14px;
-      color: #00A1E0;
-      margin-bottom: 4px;
-    }
-    .feature-item p {
-      font-size: 13px;
-      color: #666;
+      line-height: 1.7;
+      margin-bottom: 32px;
     }
     .links {
       display: flex;
+      flex-direction: column;
       gap: 12px;
-      justify-content: center;
-      flex-wrap: wrap;
     }
     .links a {
-      display: inline-block;
-      padding: 10px 24px;
-      border-radius: 8px;
+      display: block;
+      padding: 14px 20px;
+      border-radius: 10px;
       text-decoration: none;
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 500;
       transition: all 0.2s;
     }
     .links a.primary {
-      background: #00A1E0;
+      background: #0176D3;
       color: #fff;
     }
     .links a.primary:hover {
-      background: #0088c0;
+      background: #0b5cab;
     }
     .links a.secondary {
-      background: #f0f4f8;
-      color: #333;
+      background: #222836;
+      border: 1px solid #2a3040;
+      color: #e8eaf0;
     }
     .links a.secondary:hover {
-      background: #e0e8f0;
+      background: #2a3040;
+      border-color: #0176D3;
     }
-    footer {
+    .footer {
       margin-top: 32px;
-      color: #999;
       font-size: 12px;
+      color: #5a6575;
     }
-    @media (max-width: 480px) {
-      .card { padding: 32px 20px; }
-      .features { grid-template-columns: 1fr; }
+  </style>
+<style id="trae-panel-enter-style">
+        @keyframes trae-panel-enter {
+          from { opacity: 0; transform: scale(0.95); }
+          to { opacity: 1; transform: scale(1); }
+        }
+      </style>
+
+  <div class="card">
+    
+    <h1>Salesforce <span>Quick Login</span></h1>
+    <p class="desc">一键登录所有 Salesforce 环境，支持 Passkey 验证、TOTP 两步验证、端到端加密云同步</p>
+    <div class="links">
+      <a href="https://49.232.62.216:12116/s/6ae104f5-978a-4214-9c44-0f3843200e7e/doc/5l255so6k05pio-DgX5OhiKa0" class="primary" target="_blank">使用说明文档</a>
+      <a href="privacy_policy.html" class="secondary" target="_blank">隐私政策</a>
+    </div>
+    <div class="footer">
+      Chrome Extension · Manifest V3 · Vue 3 + Supabase
+    </div>
+  </div>
+
+
+=======
+      background: #0176D3;
+      color: #fff;
+    }
+    .links a.primary:hover {
+      background: #0b5cab;
+    }
+    .links a.secondary {
+      background: #222836;
+      border: 1px solid #2a3040;
+      color: #e8eaf0;
+    }
+    .links a.secondary:hover {
+      background: #2a3040;
+      border-color: #0176D3;
+    }
+    .footer {
+      margin-top: 32px;
+      font-size: 12px;
+      color: #5a6575;
+    }
+  
+<style data-id="immersive-translate-input-injected-css"></style><style id="trae-panel-enter-style">
+        @keyframes trae-panel-enter {
+          from { opacity: 0; transform: scale(0.95); }
+          to { opacity: 1; transform: scale(1); }
+        }
+      </style>
+
+  <div class="card">
+    
+    <h1>Salesforce <span>Quick Login</span></h1>
+    <p class="desc">一键登录所有 Salesforce 环境，支持 Passkey 验证、TOTP 两步验证、端到端加密云同步</p>
+    <div class="links">
+      <a href="https://49.232.62.216:12116/s/6ae104f5-978a-4214-9c44-0f3843200e7e/doc/5l255so6k05pio-DgX5OhiKa0" class="primary" target="_blank">使用说明文档</a>
+      <a href="privacy_policy.html" class="secondary" target="_blank">隐私政策</a>
+    </div>
+    <div class="footer">
+      Chrome Extension · Manifest V3 · Vue 3 + Supabase
+    </div>
+  </div>
+
+
+&gt;&gt;&gt;&gt;&gt;&gt;&gt; c6ebf0a (feat: 重构文档页面，部署 GitHub Pages)
+
+
+
+  <meta charset="UTF-&lt;!DOCTYPE html&gt;
+&lt;html lang=" zh-cn"="">
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0&lt;!DOCTYPE html&gt;
+&lt;html lang=" zh-cn"="">
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <styl<!doctype html="">
+
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: bord<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont,<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content:<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background:<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a304</style></styl<!doctype></body></html><!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <styl<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: bord<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont,<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content:<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background:<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a304<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 span { color: #<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 span { color: #0176D3; }
+    .desc {
+      color: #8b95a5;<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 span { color: #0176D3; }
+    .desc {
+      color: #8b95a5;
+      font-size: 14px;
+      line-height: 1.7;
+      margin-botto<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 span { color: #0176D3; }
+    .desc {
+      color: #8b95a5;
+      font-size: 14px;
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+    .links {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .links a {<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 span { color: #0176D3; }
+    .desc {
+      color: #8b95a5;
+      font-size: 14px;
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+    .links {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .links a {
+      display: block;
+      padding: 14px 20px;
+      border-radius: 10px<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 span { color: #0176D3; }
+    .desc {
+      color: #8b95a5;
+      font-size: 14px;
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+    .links {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .links a {
+      display: block;
+      padding: 14px 20px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight:<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 span { color: #0176D3; }
+    .desc {
+      color: #8b95a5;
+      font-size: 14px;
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+    .links {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .links a {
+      display: block;
+      padding: 14px 20px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .links<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 span { color: #0176D3; }
+    .desc {
+      color: #8b95a5;
+      font-size: 14px;
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+    .links {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .links a {
+      display: block;
+      padding: 14px 20px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .links a.primary {
+      background: #0176D3;
+      color: #fff;
+    }
+    .links a.primary:hover {
+      background: #0b5cab;<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 span { color: #0176D3; }
+    .desc {
+      color: #8b95a5;
+      font-size: 14px;
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+    .links {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .links a {
+      display: block;
+      padding: 14px 20px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .links a.primary {
+      background: #0176D3;
+      color: #fff;
+    }
+    .links a.primary:hover {
+      background: #0b5cab;
+    }
+    .links a.secondary {
+      background: #222836;
+      border:<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 span { color: #0176D3; }
+    .desc {
+      color: #8b95a5;
+      font-size: 14px;
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+    .links {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .links a {
+      display: block;
+      padding: 14px 20px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .links a.primary {
+      background: #0176D3;
+      color: #fff;
+    }
+    .links a.primary:hover {
+      background: #0b5cab;
+    }
+    .links a.secondary {
+      background: #222836;
+      border: 1px solid #2a3040;
+      color: #e8eaf0;
+    }
+    .links a.secondary:hover {
+      background: #2a3040;<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 span { color: #0176D3; }
+    .desc {
+      color: #8b95a5;
+      font-size: 14px;
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+    .links {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .links a {
+      display: block;
+      padding: 14px 20px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .links a.primary {
+      background: #0176D3;
+      color: #fff;
+    }
+    .links a.primary:hover {
+      background: #0b5cab;
+    }
+    .links a.secondary {
+      background: #222836;
+      border: 1px solid #2a3040;
+      color: #e8eaf0;
+    }
+    .links a.secondary:hover {
+      background: #2a3040;
+      border-color: #0176D3;
+    }
+    .footer {
+      margin<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 span { color: #0176D3; }
+    .desc {
+      color: #8b95a5;
+      font-size: 14px;
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+    .links {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .links a {
+      display: block;
+      padding: 14px 20px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .links a.primary {
+      background: #0176D3;
+      color: #fff;
+    }
+    .links a.primary:hover {
+      background: #0b5cab;
+    }
+    .links a.secondary {
+      background: #222836;
+      border: 1px solid #2a3040;
+      color: #e8eaf0;
+    }
+    .links a.secondary:hover {
+      background: #2a3040;
+      border-color: #0176D3;
+    }
+    .footer {
+      margin-top: 32px;
+      font-size: 12px;
+      color: #5<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 span { color: #0176D3; }
+    .desc {
+      color: #8b95a5;
+      font-size: 14px;
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+    .links {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .links a {
+      display: block;
+      padding: 14px 20px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .links a.primary {
+      background: #0176D3;
+      color: #fff;
+    }
+    .links a.primary:hover {
+      background: #0b5cab;
+    }
+    .links a.secondary {
+      background: #222836;
+      border: 1px solid #2a3040;
+      color: #e8eaf0;
+    }
+    .links a.secondary:hover {
+      background: #2a3040;
+      border-color: #0176D3;
+    }
+    .footer {
+      margin-top: 32px;
+      font-size: 12px;
+      color: #5a6575;
     }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="logo">
-      <svg viewBox="0 0 24 24">
-        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-      </svg>
-    </div>
-    <h1>Salesforce Quick Login</h1>
-    <p class="subtitle">一款高效、安全的 Salesforce 登录管理 Chrome 扩展</p>
-
-    <div class="features">
-      <div class="feature-item">
-        <h3>一键登录</h3>
-        <p>自动填充登录表单，支持 SOAP API、Form POST 等多种登录方式</p>
-      </div>
-      <div class="feature-item">
-        <h3>多环境管理</h3>
-        <p>管理 Production、SandBox 和自定义 Salesforce 环境</p>
-      </div>
-      <div class="feature-item">
-        <h3>Passkey 支持</h3>
-        <p>使用 Passkey 无密码登录，安全便捷</p>
-      </div>
-      <div class="feature-item">
-        <h3>TOTP 验证码</h3>
-        <p>内置 MFA 验证码生成器，无需额外设备</p>
-      </div>
-    </div>
-
-    <div class="links">
-      <a class="primary" href="https://chrome.google.com/webstore" target="_blank">安装扩展</a>
-      <a class="secondary" href="privacy-policy.html">隐私政策</a>
-      <a class="secondary" href="https://49.232.62.216:12116/s/6ae104f5-978a-4214-9c44-0f3843200e7e/doc/5l255so6k05pio-DgX5OhiKa0" target="_blank">使用文档</a>
-    </div>
-
-    <footer>&copy; 2026 Salesforce Quick Login. All rights reserved.</footer>
-  </div>
-</body>
-</html>
+    <h1<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Quick Login - Chrome 扩展</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    h1 span { color: #0176D3; }
+    .desc {
+      color: #8b95a5;
+      font-size: 14px;
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+    .links {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .links a {
+      display: block;
+      padding: 14px 20px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .links a.primary {
+      background: #0176D3;
+      color: #fff;
+    }
+    .links a.primary:hover {
+      background: #0b5cab;
+    }
+    .links a.secondary {
+      background: #222836;
+      border: 1px solid #2a3040;
+      color: #e8eaf0;
+    }
+    .links a.secondary:hover {
+      background: #2a3040;
+      border-color: #0176D3;
+    }
+    .footer {
+      margin-top: 32px;
+      font-size: 12px;
+      color: #5a6575;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Salesforce <span>Quick Login</span></h1>
+    <p class="desc
