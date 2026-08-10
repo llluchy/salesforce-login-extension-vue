@@ -1,0 +1,198 @@
+-- ============================================================
+-- Supabase 数据库 DDL 备份
+-- 来源：Supabase 控制台 SQL Editor 逐表导出
+-- 说明：仅备份结构（不含数据），用于审计与重建
+-- ============================================================
+
+-- ---------- 表：env_shares 分享记录 ----------
+create table public.env_shares (
+  id uuid not null default gen_random_uuid (),
+  env_ids uuid[] not null,
+  owner_user_id uuid not null,
+  share_code text not null,
+  verify_code text not null,
+  encrypted_envs jsonb not null,
+  status text not null default 'active'::text,
+  expires_at timestamp with time zone not null,
+  consumed_by uuid null,
+  created_at timestamp with time zone null default now(),
+  constraint env_shares_pkey primary key (id),
+  constraint env_shares_share_code_key unique (share_code),
+  constraint env_shares_owner_user_id_fkey foreign KEY (owner_user_id) references auth.users (id)
+) TABLESPACE pg_default;
+
+-- ---------- 表：environments 环境数据 ----------
+create table public.environments (
+  id uuid not null default gen_random_uuid (),
+  user_id uuid not null,
+  alias text not null,
+  username text not null,
+  password text not null,
+  type text not null default 'production'::text,
+  custom_url text null,
+  group_id text null,
+  totp_secret text null,
+  passkeys jsonb null default '[]'::jsonb,
+  sort_order integer null default 0,
+  created_at timestamp with time zone null default now(),
+  updated_at timestamp with time zone null default now(),
+  is_deleted boolean not null default false,
+  deleted_at timestamp with time zone null,
+  constraint environments_pkey primary key (id),
+  constraint environments_user_id_fkey foreign KEY (user_id) references auth.users (id) on delete CASCADE
+) TABLESPACE pg_default;
+
+create index IF not exists idx_env_user on public.environments using btree (user_id) TABLESPACE pg_default;
+
+create index IF not exists idx_env_group on public.environments using btree (user_id, group_id) TABLESPACE pg_default;
+
+create index IF not exists idx_env_deleted on public.environments using btree (user_id, is_deleted) TABLESPACE pg_default;
+
+create trigger trg_env_touch BEFORE
+update on environments for EACH row
+execute FUNCTION touch_updated_at ();
+
+-- ---------- 表：groups 分组 ----------
+create table public.groups (
+  id uuid not null default gen_random_uuid (),
+  user_id uuid not null,
+  name text not null,
+  sort_order integer null default 0,
+  collapsed boolean null default false,
+  created_at timestamp with time zone null default now(),
+  updated_at timestamp with time zone null default now(),
+  constraint groups_pkey primary key (id),
+  constraint groups_user_id_fkey foreign KEY (user_id) references auth.users (id) on delete CASCADE
+) TABLESPACE pg_default;
+
+create index IF not exists idx_grp_user on public.groups using btree (user_id) TABLESPACE pg_default;
+
+create trigger trg_grp_touch BEFORE
+update on groups for EACH row
+execute FUNCTION touch_updated_at ();
+
+-- ---------- 表：user_secrets 用户密钥 ----------
+create table public.user_secrets (
+  user_id uuid not null,
+  salt text not null,
+  created_at timestamp with time zone null default now(),
+  device_code text null,
+  constraint user_secrets_pkey primary key (user_id),
+  constraint user_secrets_user_id_fkey foreign KEY (user_id) references auth.users (id) on delete CASCADE
+) TABLESPACE pg_default;
+
+-- ---------- 函数：accept_share_lookup 接受分享查询 ----------
+-- 说明：根据分享码+验证码查询有效分享记录，SECURITY DEFINER 绕过 RLS 读取
+CREATE OR REPLACE FUNCTION public.accept_share_lookup(p_share_code text, p_verify_code text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_share record;
+BEGIN
+  SELECT * INTO v_share
+  FROM env_shares
+  WHERE share_code = p_share_code
+    AND status = 'active'
+    AND expires_at > now()
+  LIMIT 1;
+
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  IF v_share.verify_code != p_verify_code THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'encrypted_envs', v_share.encrypted_envs,
+    'owner_user_id', v_share.owner_user_id,
+    'expires_at', v_share.expires_at
+  );
+END;
+$function$
+
+-- ---------- 函数：accept_share_mark_used 标记分享已使用 ----------
+-- 说明：分享被接受后将其状态标记为 used，并记录使用者，SECURITY DEFINER 绕过 RLS 更新
+CREATE OR REPLACE FUNCTION public.accept_share_mark_used(p_share_code text, p_consumed_by uuid)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  UPDATE env_shares
+  SET status = 'used',
+      consumed_by = p_consumed_by
+  WHERE share_code = p_share_code
+    AND status = 'active'
+    AND expires_at > now();
+
+  RETURN FOUND;
+END;
+$function$
+
+-- ---------- 函数：touch_updated_at 自动更新 updated_at ----------
+-- 说明：environments、groups 表 BEFORE UPDATE 触发器调用，自动刷新 updated_at
+CREATE OR REPLACE FUNCTION public.touch_updated_at()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$function$
+
+-- ------------------------------------------------------------
+-- RLS 策略（Row Level Security）
+-- 说明：以下需确认各表已执行 enable row level security
+-- ------------------------------------------------------------
+
+-- env_shares：用户管理自己创建的分享
+alter table public.env_shares enable row level security;
+create policy "用户管理自己创建的分享" on public.env_shares
+  as PERMISSIVE for ALL to public
+  using (auth.uid() = owner_user_id);
+
+-- environments
+alter table public.environments enable row level security;
+create policy "env_delete" on public.environments
+  as PERMISSIVE for DELETE to public
+  using (auth.uid() = user_id);
+create policy "env_insert" on public.environments
+  as PERMISSIVE for INSERT to public;
+create policy "env_select" on public.environments
+  as PERMISSIVE for SELECT to public
+  using (auth.uid() = user_id);
+create policy "env_update" on public.environments
+  as PERMISSIVE for UPDATE to public
+  using (auth.uid() = user_id);
+
+-- groups
+alter table public.groups enable row level security;
+create policy "grp_delete" on public.groups
+  as PERMISSIVE for DELETE to public
+  using (auth.uid() = user_id);
+create policy "grp_insert" on public.groups
+  as PERMISSIVE for INSERT to public;
+create policy "grp_select" on public.groups
+  as PERMISSIVE for SELECT to public
+  using (auth.uid() = user_id);
+create policy "grp_update" on public.groups
+  as PERMISSIVE for UPDATE to public
+  using (auth.uid() = user_id);
+
+-- user_secrets
+alter table public.user_secrets enable row level security;
+create policy "secret_insert" on public.user_secrets
+  as PERMISSIVE for INSERT to public;
+create policy "secret_select" on public.user_secrets
+  as PERMISSIVE for SELECT to public
+  using (auth.uid() = user_id);
+create policy "用户可更新自己的 user_secrets" on public.user_secrets
+  as PERMISSIVE for UPDATE to authenticated
+  using (auth.uid() = user_id);
