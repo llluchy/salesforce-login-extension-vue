@@ -403,6 +403,8 @@ function base64urlToArrayBuffer(base64url) {
   return base64urlToUint8Array(base64url).buffer
 }
 
+export { base64urlToUint8Array }
+
 /**
  * 将序列化的 credential 对象转换为可以发送给 page-world 的格式
  * 所有 ArrayBuffer 字段转换为 base64url 字符串

@@ -9,7 +9,7 @@
 import { ref, readonly } from 'vue'
 import { useStorage } from './useStorage'
 import { useAuth } from './useAuth'
-import { makeCredential, getAssertion, serializeCredential } from '../utils/webauthn'
+import { makeCredential, getAssertion, serializeCredential, base64urlToUint8Array } from '../utils/webauthn'
 
 let _listener = null
 
@@ -40,77 +40,6 @@ export function initPasskeyBridge() {
       return { success: false, error: '请先在扩展面板登录并解锁' }
     }
     return null
-  }
-
-  // ============================================
-  // WebAuthn 认证器引用（从全局加载）
-  // ============================================
-  function getAuthenticator() {
-    if (typeof WebAuthnAuthenticator !== 'undefined') return WebAuthnAuthenticator
-    throw new Error('WebAuthnAuthenticator 未加载，请检查 index.html 中 script 标签')
-  }
-
-  // ============================================
-  // 序列化 credential（ArrayBuffer → base64url，用于跨消息传递）
-  // ============================================
-  function serializeCredential(cred) {
-    const auth = getAuthenticator()
-    const serialized = {
-      id: cred.id,
-      type: cred.type,
-      authenticatorAttachment: cred.authenticatorAttachment,
-      response: {},
-      clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {}
-    }
-
-    if (cred.response) {
-      if (cred.response.clientDataJSON) {
-        serialized.response.clientDataJSON = auth._arrayBufferToBase64url(
-          cred.response.clientDataJSON instanceof ArrayBuffer ? new Uint8Array(cred.response.clientDataJSON) : cred.response.clientDataJSON
-        )
-      }
-      if (cred.response.authenticatorData) {
-        serialized.response.authenticatorData = auth._arrayBufferToBase64url(
-          cred.response.authenticatorData instanceof ArrayBuffer ? new Uint8Array(cred.response.authenticatorData) : cred.response.authenticatorData
-        )
-      }
-      if (cred.response.signature) {
-        serialized.response.signature = auth._arrayBufferToBase64url(
-          cred.response.signature instanceof ArrayBuffer ? new Uint8Array(cred.response.signature) : cred.response.signature
-        )
-      }
-      if (cred.response.userHandle) {
-        serialized.response.userHandle = auth._arrayBufferToBase64url(
-          cred.response.userHandle instanceof ArrayBuffer ? new Uint8Array(cred.response.userHandle) : cred.response.userHandle
-        )
-      }
-      if (cred.response.attestationObject) {
-        serialized.response.attestationObject = auth._arrayBufferToBase64url(
-          cred.response.attestationObject instanceof ArrayBuffer ? new Uint8Array(cred.response.attestationObject) : cred.response.attestationObject
-        )
-      }
-      // 序列化 getter 结果
-      if (cred.response.getTransports) {
-        serialized.response.transports = cred.response.getTransports()
-      }
-      if (cred.response.getAuthenticatorData) {
-        const ad = cred.response.getAuthenticatorData()
-        if (ad instanceof ArrayBuffer) {
-          serialized.response.authenticatorData = auth._arrayBufferToBase64url(new Uint8Array(ad))
-        }
-      }
-      if (cred.response.getPublicKey) {
-        const pk = cred.response.getPublicKey()
-        if (pk instanceof ArrayBuffer) {
-          serialized.response.getPublicKey = auth._arrayBufferToBase64url(new Uint8Array(pk))
-        }
-      }
-      if (cred.response.getPublicKeyAlgorithm !== undefined) {
-        serialized.response.getPublicKeyAlgorithm = cred.response.getPublicKeyAlgorithm
-      }
-    }
-
-    return serialized
   }
 
   // ============================================
@@ -163,8 +92,7 @@ export function initPasskeyBridge() {
       }
 
       // 执行 WebAuthn getAssertion
-      const auth = getAuthenticator()
-      const result = await auth.getAssertion(
+      const result = await getAssertion(
         { rpId, challenge, allowCredentials: allowCredentials || [] },
         origin,
         Array.isArray(selectedEnv.passkeys) ? selectedEnv.passkeys : []
@@ -217,20 +145,19 @@ export function initPasskeyBridge() {
       if (!selectedEnv) { respondToContent(msg, { fallback: true }); return }
 
       // 执行 WebAuthn makeCredential
-      const auth = getAuthenticator()
       const createOptions = {
         rpId: data.rpId, rp: data.rp,
         user: data.user ? {
-          id: auth._base64urlToUint8Array(data.user.id).buffer,
+          id: base64urlToUint8Array(data.user.id).buffer,
           name: data.user.name, displayName: data.user.displayName
         } : undefined,
-        challenge: auth._base64urlToUint8Array(data.challenge).buffer,
+        challenge: base64urlToUint8Array(data.challenge).buffer,
         pubKeyCredParams: data.pubKeyCredParams,
         excludeCredentials: (data.excludeCredentials || []).map(c => ({ id: c.id, type: c.type })),
         authenticatorSelection: data.authenticatorSelection
       }
 
-      const result = await auth.makeCredential(createOptions, data.origin)
+      const result = await makeCredential(createOptions, data.origin)
       if (!result || !result.credential) { respondToContent(msg, { fallback: true }); return }
 
       // 保存凭证
