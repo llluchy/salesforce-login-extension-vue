@@ -5,6 +5,7 @@ dist/
 
 # 本地凭据（仅本地保留，勿提交）
 github-token.txt
+gitee-token.txt
 
 # 测试/构建产物
 .playwright-*/
