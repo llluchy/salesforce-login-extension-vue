@@ -77,23 +77,6 @@ export const syncLog = {
       createdAt: env.createdAt,
       updatedAt: env.updatedAt
     }
-  },
-
-  envsSummary(envs) {
-    if (!Array.isArray(envs)) return '(not array)'
-    return {
-      count: envs.length,
-      ids: envs.map(e => e.id),
-      items: envs.map(e => this.envSummary(e))
-    }
-  },
-
-  groupsSummary(groups) {
-    if (!Array.isArray(groups)) return '(not array)'
-    return {
-      count: groups.length,
-      items: groups.map(g => ({ id: g.id, name: g.name, updatedAt: g.updatedAt }))
-    }
   }
 }
 

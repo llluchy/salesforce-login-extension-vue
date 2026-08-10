@@ -40,23 +40,3 @@ export function getSupabase() {
     return null
   }
 }
-
-export function getSupabaseError() {
-  return _initError
-}
-
-/**
- * 检查 Supabase 是否可用
- */
-export function isSupabaseReady() {
-  return _client !== null
-}
-
-// 用于 useSupabase() 风格调用（与其他 composable 一致）
-export function useSupabase() {
-  return {
-    supabase: getSupabase(),
-    isReady: isSupabaseReady(),
-    error: _initError
-  }
-}

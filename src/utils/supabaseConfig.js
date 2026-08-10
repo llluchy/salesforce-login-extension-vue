@@ -16,7 +16,6 @@ export const SUPABASE_ANON_KEY = 'sb_publishable_b0Xs0scWJ24ZfSye2YV7JA_T-EPwjIF
 export const PBKDF2_ITERATIONS = 100000
 export const SALT_LENGTH = 32
 export const IV_LENGTH = 12
-export const AES_KEY_LENGTH = 256
 
 // ============================================
 // 邮件跳转链接配置
