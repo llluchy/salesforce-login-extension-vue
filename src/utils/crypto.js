@@ -111,14 +111,22 @@ function obfuscate(fingerprint) {
 /**
  * 生成设备码
  * 第一次生成后会缓存到内存中
+ * 加入随机因子后持久化到 localStorage，避免不同设备指纹碰撞
  */
 let _cachedDeviceCode = null
+
+const DEVICE_SALT_KEY = 'sf_device_random_salt'
 
 export function getDeviceCode() {
   if (_cachedDeviceCode) return _cachedDeviceCode
   
   try {
-    const fingerprint = collectDeviceFingerprint()
+    let salt = localStorage.getItem(DEVICE_SALT_KEY)
+    if (!salt) {
+      salt = Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
+      localStorage.setItem(DEVICE_SALT_KEY, salt)
+    }
+    const fingerprint = collectDeviceFingerprint() + salt
     _cachedDeviceCode = obfuscate(fingerprint)
   } catch (e) {
     // 降级：生成随机码

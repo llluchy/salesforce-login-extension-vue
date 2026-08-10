@@ -169,7 +169,7 @@ async function acceptShare(shareCode, verifyCode, aliases = []) {
   const { error: consumeErr } = await supabase
     .rpc('accept_share_mark_used', { p_share_code: shareCode, p_consumed_by: userId })
   if (consumeErr) {
-    // 标记失败不影响接受结果
+    console.warn('[Share] 标记分享码已使用失败（不影响接受结果）', consumeErr)
   }
 
   return { success: true, envIds: newEnvIds }

@@ -360,6 +360,11 @@ const handleSaveEnv = async (env) => {
       environments.value[index] = env
     }
   } else {
+    if (environments.value.length >= MAX_ENVIRONMENTS) {
+      showToast(`环境数量已达上限（${MAX_ENVIRONMENTS} 个），无法继续添加`, 'error')
+      syncLog.groupEnd()
+      return
+    }
     env.id = generateUuid()
     environments.value.push(env)
   }
@@ -471,7 +476,7 @@ const handleLogin = async (env) => {
         }
       })
     } catch (e) {
-      // 暂存失败，继续登录流程
+      console.warn('暂存 loginEnv 失败', e)
     }
 
     await login(env)
@@ -518,6 +523,7 @@ const handleExportBackup = async () => {
 
     showToast(`已导出 ${creds.length} 个凭证、${envs.length} 个环境`, 'success')
   } catch (error) {
+    console.error('Export backup error:', error)
     showToast(error.message || '导出失败', 'error')
   }
 }
@@ -567,6 +573,7 @@ const handleImportBackup = async (event) => {
 
     showToast(`导入完成：新增 ${credCount} 个凭证、${envCount} 个环境`, 'success')
   } catch (error) {
+    console.error('Import backup error:', error)
     showToast(error.message || '导入失败：文件格式错误', 'error')
   }
 }
@@ -581,7 +588,7 @@ const handleShowTotp = async (env) => {
       try {
         await fillTotpCode(code)
       } catch (e) {
-        // Auto-fill failed silently
+        console.log('Auto-fill failed, code:', code)
       }
     } else {
       showToast('无法生成验证码', 'error')
@@ -753,6 +760,7 @@ const onAuthed = async () => {
   }
   _onAuthedRunning = true
   syncLog.info('App.onAuthed 登录成功，开始加载数据')
+  accountDialogVisible.value = false
 
   // 首次登录时尝试迁移本地旧数据到 Supabase（云端有数据则自动跳过）
   try {
@@ -763,18 +771,21 @@ const onAuthed = async () => {
     }
   } catch (e) {
     syncLog.error('迁移本地数据失败', e)
+    console.error('[App] onAuthed 迁移异常', e)
   }
 
   try {
     initPasskeyBridge()
   } catch (e) {
     syncLog.error('初始化 Passkey Bridge 失败', e)
+    console.error('[App] onAuthed Passkey Bridge 异常', e)
   }
 
   try {
     await loadData()
   } catch (e) {
     syncLog.error('加载数据失败', e)
+    console.error('[App] onAuthed loadData 异常', e)
   } finally {
     _onAuthedRunning = false
   }
@@ -787,7 +798,7 @@ watch(isAuthed, (newVal, oldVal) => {
   if (newVal === true && oldVal === false && !_authTriggered) {
     _authTriggered = true
     onAuthed().catch(err => {
-      // silent
+      console.error('[App] watch onAuthed 异常', err)
     }).finally(() => {
       _authTriggered = false
     })
@@ -814,7 +825,7 @@ const handleShareAccepted = async () => {
     environments.value = envs
     showToast('已添加副环境')
   } catch (e) {
-    // silent
+    console.error('[App] handleShareAccepted 刷新失败', e)
   }
 }
 

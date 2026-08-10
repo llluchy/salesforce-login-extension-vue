@@ -194,7 +194,8 @@ export function useStorage() {
     const rowsToUpsert = []
     for (let i = 0; i < envList.length; i++) {
       const env = envList[i]
-      if (env.sortOrder === undefined || env.sortOrder === null) {
+      // 单条保存（如编辑单个环境）时不更新排序，避免将 sortOrder 重置为 0
+      if (envList.length > 1) {
         env.sortOrder = i
       }
       env.updatedAt = Date.now()
@@ -297,7 +298,9 @@ export function useStorage() {
       return groups
     } catch (e) {
       logError('从 Supabase 读取分组失败，fallback 到本地缓存', e)
+      console.error('[Storage] loadGroups 失败详情:', e)
       const cached = await cacheGet(STORAGE_KEY_GROUPS)
+      console.log('[Storage] loadGroups fallback 到缓存，缓存数据:', cached ? cached.length : 0, '条')
       return Array.isArray(cached) ? cached : []
     }
   }

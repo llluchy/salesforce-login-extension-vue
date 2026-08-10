@@ -2,3 +2,13 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# 本地凭据（仅本地保留，勿提交）
+github-token.txt
+
+# 测试/构建产物
+.playwright-*/
+salesforce-quick-login-v2.0.crx
+salesforce-quick-login-v2.0.pem
+salesforce-quick-login-v2.0.zip
+salesforce-quick-login/

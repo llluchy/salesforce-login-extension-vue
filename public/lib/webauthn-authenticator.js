@@ -32,21 +32,16 @@ const WebAuthnAuthenticator = {
     const signCount = 0;
     const authData = this._buildAuthData(rpIdHash, flags, signCount, attestedCredData);
 
-    // challenge 可能是 ArrayBuffer、Uint8Array、或 base64url 字符串
-    let challengeBase64url;
-    if (options.challenge instanceof ArrayBuffer) {
-      challengeBase64url = this._arrayBufferToBase64url(new Uint8Array(options.challenge));
-    } else if (options.challenge instanceof Uint8Array) {
-      challengeBase64url = this._arrayBufferToBase64url(options.challenge);
+    let challengeBuf = options.challenge;
+    if (options.challenge instanceof Uint8Array) {
+      challengeBuf = options.challenge.buffer;
     } else if (options.challenge && typeof options.challenge === 'object' && options.challenge.buffer) {
-      // TypedArray view
-      challengeBase64url = this._arrayBufferToBase64url(new Uint8Array(options.challenge.buffer));
-    } else if (typeof options.challenge === 'string') {
-      // 已经是 base64url 字符串（来自 page-world.js 的 arrayBufferToBase64）
-      challengeBase64url = options.challenge;
-    } else {
-      challengeBase64url = String(options.challenge || '');
+      challengeBuf = options.challenge.buffer;
     }
+    const challengeBase64url = (challengeBuf instanceof ArrayBuffer)
+      ? this._arrayBufferToBase64url(challengeBuf)
+      : String(challengeBuf);
+
     const clientDataJSON = JSON.stringify({
       type: 'webauthn.create',
       challenge: challengeBase64url,
@@ -161,41 +156,21 @@ const WebAuthnAuthenticator = {
 
   async getAssertion(options, origin, storedCredentials) {
     const rpId = options.rpId || new URL(origin).hostname;
-    const creds = storedCredentials || [];
-    const allowCredentials = options.allowCredentials || [];
 
     let matchedCredential = null;
+    const allowCredentials = options.allowCredentials || [];
 
     if (allowCredentials.length > 0) {
       for (const allowCred of allowCredentials) {
-        let credId;
-        // allowCred.id 可能是 ArrayBuffer、Uint8Array 或 string
-        if (typeof allowCred === 'string') {
-          credId = allowCred;
-        } else if (allowCred.id instanceof ArrayBuffer) {
-          credId = this._arrayBufferToBase64url(new Uint8Array(allowCred.id));
-        } else if (allowCred.id && allowCred.id.buffer) {
-          credId = this._arrayBufferToBase64url(new Uint8Array(allowCred.id.buffer));
-        } else if (typeof allowCred.id === 'string') {
-          credId = allowCred.id;
-        }
+        const credId = typeof allowCred === 'string' ? allowCred : allowCred.id;
         // 优先用 credentialId 精确匹配
-        matchedCredential = creds.find(c => {
-          if (!c.credentialId) return false;
-          // 标准化比较：去除 base64url padding 差异
-          const stored = c.credentialId.replace(/=/g, '');
-          const allowed = credId.replace(/=/g, '');
-          return stored === allowed;
-        });
-        if (matchedCredential) {
-          break;
-        }
+        matchedCredential = storedCredentials.find(c => c.credentialId && c.credentialId === credId);
+        if (matchedCredential) break;
       }
     }
-    
-    // 如果 allowCredentials 为空（discoverable credential），直接用 rpId 匹配
-    if (!matchedCredential && allowCredentials.length === 0) {
-      matchedCredential = creds.find(c => c.rpId === rpId);
+    // 如果精确匹配失败，回退到 rpId 匹配（兼容旧数据）
+    if (!matchedCredential) {
+      matchedCredential = storedCredentials.find(c => c.rpId === rpId);
     }
 
     if (!matchedCredential) {

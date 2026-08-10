@@ -9,6 +9,7 @@
 import { ref, readonly } from 'vue'
 import { useStorage } from './useStorage'
 import { useAuth } from './useAuth'
+import { makeCredential, getAssertion, serializeCredential } from '../utils/webauthn'
 
 let _listener = null
 
@@ -22,13 +23,14 @@ export function initPasskeyBridge() {
   if (_listener) return
 
   if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.onMessage) {
+    console.warn('[PasskeyBridge] 非扩展环境，跳过消息桥注册')
     return
   }
 
   const {
     loadEnvironments, saveEnvironments,
     loadPasskeyCredentials, savePasskeyCredential,
-    getPasskeyCredentialById,
+    getPasskeyCredentialById, getPasskeyCredentialsByRpId,
     updatePasskeySignCount
   } = useStorage()
   const { isAuthed, getCryptoKeyRaw, currentUser } = useAuth()
@@ -316,7 +318,10 @@ export function initPasskeyBridge() {
 
       return {
         success: true,
-        imported: { credentials: credCount, environments: envCount }
+        imported: {
+          credentials: credCount,
+          environments: envCount
+        }
       }
     },
 
@@ -369,7 +374,9 @@ export function initPasskeyBridge() {
       const newEnv = msg.environment
       if (!newEnv) return { success: false, error: '环境数据为空' }
       const envs = await loadEnvironments()
-      if (!envs.find(e => e.id === newEnv.id)) envs.push(newEnv)
+      if (!envs.find(e => e.id === newEnv.id)) {
+        envs.push(newEnv)
+      }
       return await saveEnvironments(envs)
     },
 
@@ -413,9 +420,9 @@ export function initPasskeyBridge() {
         if (result) sendResponse(result)
       })
       .catch(err => {
+        console.error('[PasskeyBridge] 处理失败', msg.action, err)
         sendResponse({ success: false, error: err.message || String(err) })
       })
-
     return true
   }
 

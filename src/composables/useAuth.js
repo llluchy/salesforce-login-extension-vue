@@ -12,6 +12,7 @@ import { ref, readonly } from 'vue'
 import { getSupabase } from './useSupabase'
 import { deriveKey, generateSalt, bytesToBase64, exportKeyToJwk, importKeyFromJwk, getDeviceCode } from '../utils/crypto'
 import { STORAGE_KEY_SESSION } from '../utils/constants'
+import { SIGNUP_REDIRECT_URL, RESET_PASSWORD_REDIRECT_URL } from '../utils/supabaseConfig'
 
 const CRYPTO_KEY_KEY = '__sf_crypto_key'
 const LAST_LOGIN_DATE_KEY = '__sf_last_login_date'
@@ -529,7 +530,7 @@ async function signUp({ email, password }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: undefined }
+      options: { emailRedirectTo: SIGNUP_REDIRECT_URL }
     })
 
     if (error) throw error
@@ -915,7 +916,9 @@ async function resetPassword(email) {
     const supabase = getSupabase()
     if (!supabase) throw new Error('Supabase 未初始化')
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email)
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: RESET_PASSWORD_REDIRECT_URL
+    })
     if (error) throw error
     log('重置邮件已发送', { email })
     return { success: true }
