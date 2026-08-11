@@ -426,3 +426,132 @@ export async function reencryptEnvs(rows, oldUserKey, newUserKey) {
     return await encryptEnv(env, newUserKey, row.user_id)
   }))
 }
+
+// ============================================
+// EC P-256 非对称加密（密码恢复用，ECIES 模式）
+// ============================================
+// 设计：
+// - 公钥存入数据库（recovery_public_key），用于加密密码
+// - 私钥仅 d 值（43 字符 base64url）交给用户本地保存
+// - 改密码时用公钥加密新密码（不需要私钥）
+// - 恢复密码时用私钥解密得到旧密码明文，再重加密所有数据
+// ============================================
+
+/**
+ * 生成 EC P-256 密钥对（ECDH 用途）
+ */
+export async function generateRecoveryKeyPair() {
+  return await subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    ['deriveKey']
+  )
+}
+
+/**
+ * 导出公钥为 JWK 字符串（含 x, y 坐标，存入 DB）
+ */
+export async function exportPublicKeyJwk(publicKey) {
+  const jwk = await subtle.exportKey('jwk', publicKey)
+  return JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y })
+}
+
+/**
+ * 导出私钥的 d 值（43 字符 base64url，交给用户保存）
+ */
+export async function exportPrivateKeyD(privateKey) {
+  const jwk = await subtle.exportKey('jwk', privateKey)
+  return jwk.d
+}
+
+/**
+ * 从 d 值导入私钥（恢复页面用）
+ */
+export async function importPrivateKeyFromD(d) {
+  const jwk = { kty: 'EC', crv: 'P-256', d: d }
+  return await subtle.importKey(
+    'jwk', jwk,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    ['deriveKey']
+  )
+}
+
+/**
+ * 从 JWK 字符串导入公钥
+ */
+export async function importPublicKeyFromJwk(jwkStr) {
+  const jwk = typeof jwkStr === 'string' ? JSON.parse(jwkStr) : jwkStr
+  return await subtle.importKey(
+    'jwk', jwk,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    []
+  )
+}
+
+/**
+ * 用公钥加密（ECIES 模式）
+ * 1. 生成临时 EC P-256 密钥对
+ * 2. ECDH(临时私钥, 公钥) → 派生 AES-256 共享密钥
+ * 3. AES-GCM 加密明文
+ * 4. 返回 JSON: {ephemPubKey:{x,y}, iv, ct}
+ */
+export async function encryptWithPublicKey(plaintext, publicKey) {
+  const ephemeralKeyPair = await subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    ['deriveKey']
+  )
+
+  const sharedKey = await subtle.deriveKey(
+    { name: 'ECDH', public: publicKey },
+    ephemeralKeyPair.privateKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt']
+  )
+
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const encoded = textEncoder.encode(String(plaintext))
+  const ct = await subtle.encrypt({ name: 'AES-GCM', iv }, sharedKey, encoded)
+
+  const ephemPubJwk = await subtle.exportKey('jwk', ephemeralKeyPair.publicKey)
+
+  return JSON.stringify({
+    ephemPubKey: { x: ephemPubJwk.x, y: ephemPubJwk.y },
+    iv: bytesToBase64(iv),
+    ct: bytesToBase64(new Uint8Array(ct))
+  })
+}
+
+/**
+ * 用私钥解密（ECIES 模式）
+ * 1. 从密文中取出临时公钥 → importKey
+ * 2. ECDH(私钥, 临时公钥) → 派生相同的共享密钥
+ * 3. AES-GCM 解密
+ */
+export async function decryptWithPrivateKey(ciphertextJson, privateKey) {
+  const data = typeof ciphertextJson === 'string' ? JSON.parse(ciphertextJson) : ciphertextJson
+
+  const ephemPubKey = await subtle.importKey(
+    'jwk',
+    { kty: 'EC', crv: 'P-256', x: data.ephemPubKey.x, y: data.ephemPubKey.y },
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    []
+  )
+
+  const sharedKey = await subtle.deriveKey(
+    { name: 'ECDH', public: ephemPubKey },
+    privateKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt']
+  )
+
+  const iv = base64ToBytes(data.iv)
+  const ct = base64ToBytes(data.ct)
+  const decrypted = await subtle.decrypt({ name: 'AES-GCM', iv }, sharedKey, ct)
+  return textDecoder.decode(decrypted)
+}

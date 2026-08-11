@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <title>密码恢复 - Salesforce Quick Login</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #0a0e14 0%, #131820 100%);
+      color: #e8eaf0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .card {
+      background: #1a1f2b;
+      border: 1px solid #2a3040;
+      border-radius: 16px;
+      padding: 40px 32px;
+      max-width: 460px;
+      width: 100%;
+    }
+    .logo {
+      font-family: 'Consolas', monospace;
+      font-size: 12px;
+      color: #0176D3;
+      letter-spacing: 1px;
+      text-align: center;
+      margin-bottom: 8px;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 8px;
+      color: #e8eaf0;
+    }
+    .desc {
+      color: #8b95a5;
+      font-size: 13px;
+      text-align: center;
+      line-height: 1.6;
+      margin-bottom: 28px;
+    }
+    .step-indicator {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 28px;
+    }
+    .step-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #222836;
+      border: 1px solid #2a3040;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: #5a6575;
+      transition: all 0.2s;
+    }
+    .step-dot.active {
+      background: #0176D3;
+      color: #fff;
+      border-color: #0176D3;
+    }
+    .step-dot.done {
+      background: #2e7d32;
+      color: #fff;
+      border-color: #2e7d32;
+    }
+    .form-group {
+      margin-bottom: 18px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #8b95a5;
+      margin-bottom: 6px;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 11px 14px;
+      border: 1px solid #2a3040;
+      border-radius: 8px;
+      font-size: 14px;
+      background: #0d1117;
+      color: #e8eaf0;
+      outline: none;
+      transition: all 0.15s;
+      font-family: inherit;
+    }
+    .form-group input:focus {
+      border-color: #0176D3;
+      box-shadow: 0 0 0 3px rgba(1, 118, 211, 0.15);
+    }
+    .form-group input::placeholder {
+      color: #5a6575;
+    }
+    .form-group .hint {
+      font-size: 11px;
+      color: #5a6575;
+      margin-top: 4px;
+    }
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #0176D3;
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: #0b5cab;
+    }
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-secondary {
+      background: #222836;
+      color: #e8eaf0;
+      border: 1px solid #2a3040;
+    }
+    .btn-secondary:hover {
+      background: #2a3040;
+      border-color: #0176D3;
+    }
+    .message {
+      margin-top: 14px;
+      padding: 11px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      display: none;
+      line-height: 1.5;
+    }
+    .message.error {
+      display: block;
+      background: rgba(229, 57, 53, 0.1);
+      color: #ef5350;
+      border: 1px solid rgba(229, 57, 53, 0.3);
+    }
+    .message.success {
+      display: block;
+      background: rgba(46, 125, 50, 0.1);
+      color: #66bb6a;
+      border: 1px solid rgba(46, 125, 50, 0.3);
+    }
+    .message.info {
+      display: block;
+      background: rgba(1, 118, 211, 0.1);
+      color: #4fc3f7;
+      border: 1px solid rgba(1, 118, 211, 0.3);
+    }
+    .loading-spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hidden { display: none !important; }
+    .password-strength {
+      margin-top: 6px;
+      height: 4px;
+      border-radius: 2px;
+      background: #2a3040;
+      overflow: hidden;
+    }
+    .password-strength .bar {
+      height: 100%;
+      width: 0;
+      transition: all 0.3s;
+    }
+    .password-strength .bar.weak { width: 33%; background: #ef5350; }
+    .password-strength .bar.medium { width: 66%; background: #ffa726; }
+    .password-strength .bar.strong { width: 100%; background: #66bb6a; }
+    .key-input-group {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+    }
+    .key-input-group input {
+      flex: 1;
+    }
+    .key-input-group .btn-upload {
+      padding: 11px 14px;
+      border: 1px solid #2a3040;
+      border-radius: 8px;
+      background: #222836;
+      color: #8b95a5;
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .key-input-group .btn-upload:hover {
+      background: #2a3040;
+      border-color: #0176D3;
+      color: #e8eaf0;
+    }
+    .footer {
+      margin-top: 24px;
+      text-align: center;
+      font-size: 12px;
+      color: #5a6575;
+    }
+    .footer a {
+      color: #4fc3f7;
+      text-decoration: none;
+    }
+    .otp-hint {
+      font-size: 12px;
+      color: #8b95a5;
+      margin-top: 8px;
+      text-align: center;
+    }
+    .resend-link {
+      color: #4fc3f7;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    .resend-link:disabled {
+      color: #5a6575;
+      cursor: not-allowed;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">SALESFORCE QUICK LOGIN</div>
+
+    <!-- 步骤 1：输入邮箱 -->
+    <div id="step1">
+      <h1>密码恢复</h1>
+      <p class="desc">请输入您的注册邮箱，我们将发送验证码</p>
+      <div class="step-indicator">
+        <div class="step-dot active">1</div>
+        <div class="step-dot">2</div>
+        <div class="step-dot">3</div>
+        <div class="step-dot">4</div>
+      </div>
+      <div class="form-group">
+        <label>注册邮箱</label>
+        <input type="email" id="email" placeholder="you@example.com" autocomplete="email" />
+      </div>
+      <button class="btn btn-primary" id="sendOtpBtn" onclick="handleSendOtp()">发送验证码</button>
+      <div id="step1Message" class="message"></div>
+    </div>
+
+    <!-- 步骤 2：输入验证码 -->
+    <div id="step2" class="hidden">
+      <h1>验证邮箱</h1>
+      <p class="desc">验证码已发送至 <span id="emailDisplay"></span></p>
+      <div class="step-indicator">
+        <div class="step-dot done">✓</div>
+        <div class="step-dot active">2</div>
+        <div class="step-dot">3</div>
+        <div class="step-dot">4</div>
+      </div>
+      <div class="form-group">
+        <label>验证码</label>
+        <input type="text" id="otpCode" placeholder="6位数字验证码" maxlength="6" autocomplete="one-time-code" />
+        <div class="otp-hint">未收到？<span class="resend-link" id="resendBtn" onclick="handleResendOtp()">重新发送</span></div>
+      </div>
+      <button class="btn btn-primary" id="verifyOtpBtn" onclick="handleVerifyOtp()">验证</button>
+      <div id="step2Message" class="message"></div>
+    </div>
+
+    <!-- 步骤 3：输入恢复密钥 -->
+    <div id="step3" class="hidden">
+      <h1>输入恢复密钥</h1>
+      <p class="desc">请输入注册时保存的 43 字符恢复密钥</p>
+      <div class="step-indicator">
+        <div class="step-dot done">✓</div>
+        <div class="step-dot done">✓</div>
+        <div class="step-dot active">3</div>
+        <div class="step-dot">4</div>
+      </div>
+      <div class="form-group">
+        <label>恢复密钥</label>
+        <div class="key-input-group">
+          <input type="text" id="recoveryKey" placeholder="43位恢复密钥" autocomplete="off" />
+          <button class="btn-upload" onclick="document.getElementById('keyFile').click()">上传文件</button>
+          <input type="file" id="keyFile" accept=".json" style="display:none" onchange="handleKeyFileUpload(event)" />
+        </div>
+        <div class="hint">密钥格式为 43 个字符（A-Za-z0-9-_），也可上传保存的密钥文件</div>
+      </div>
+      <button class="btn btn-primary" id="verifyKeyBtn" onclick="handleVerifyKey()">验证密钥</button>
+      <div id="step3Message" class="message"></div>
+    </div>
+
+    <!-- 步骤 4：设置新密码 -->
+    <div id="step4" class="hidden">
+      <h1>设置新密码</h1>
+      <p class="desc">旧密码已验证成功，请设置您的新密码</p>
+      <div class="step-indicator">
+        <div class="step-dot done">✓</div>
+        <div class="step-dot done">✓</div>
+        <div class="step-dot done">✓</div>
+        <div class="step-dot active">4</div>
+      </div>
+      <div class="form-group">
+        <label>新密码</label>
+        <input type="password" id="newPassword" placeholder="至少 8 位字符" autocomplete="new-password" minlength="8" />
+        <div class="password-strength"><div class="bar" id="strengthBar"></div></div>
+      </div>
+      <div class="form-group">
+        <label>确认新密码</label>
+        <input type="password" id="confirmPassword" placeholder="再次输入新密码" autocomplete="new-password" />
+      </div>
+      <button class="btn btn-primary" id="resetBtn" onclick="handleReset()">重置密码</button>
+      <div id="step4Message" class="message"></div>
+    </div>
+
+    <!-- 成功页面 -->
+    <div id="successPage" class="hidden">
+      <div style="text-align:center;padding:20px 0;">
+        <div style="font-size:48px;margin-bottom:16px;">✅</div>
+        <h1>密码重置成功</h1>
+        <p class="desc">您现在可以关闭此页面，回到插件使用新密码登录</p>
+      </div>
+    </div>
+
+    <div class="footer">
+      <a href="welcome.html">返回首页</a>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script>
+    // ============================================
+    // 配置
+    // ============================================
+    const SUPABASE_URL = 'https://ulcqqmhykqxdpcoveidf.supabase.co'
+    const SUPABASE_ANON_KEY = 'sb_publishable_b0Xs0scWJ24ZfSye2YV7JA_T-EPwjIF'
+    const PBKDF2_ITERATIONS = 100000
+    const SALT_LENGTH = 32
+    const IV_LENGTH = 12
+
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false }
+    })
+
+    const subtle = crypto.subtle
+    const textEncoder = new TextEncoder()
+    const textDecoder = new TextDecoder()
+
+    // 全局状态
+    let userEmail = ''
+    let sessionUserId = null
+    let secretData = null       // { recovery_password, recovery_public_key, salt }
+    let oldPassword = null      // 解密后的旧密码（仅在内存中，不显示）
+
+    // ============================================
+    // 内联加密函数（从 src/utils/crypto.js 复制）
+    // ============================================
+
+    function bytesToBase64(bytes) {
+      let binary = ''
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i])
+      }
+      return btoa(binary)
+    }
+
+    function base64ToBytes(b64) {
+      const binary = atob(b64)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i)
+      }
+      return bytes
+    }
+
+    async function deriveKey(password, saltBytes, extractable = false) {
+      if (!password) throw new Error('密码不能为空')
+      if (!saltBytes || saltBytes.length < 16) throw new Error('salt 至少 16 字节')
+
+      const baseKey = await subtle.importKey(
+        'raw',
+        textEncoder.encode(password),
+        { name: 'PBKDF2' },
+        false,
+        ['deriveKey']
+      )
+
+      return await subtle.deriveKey(
+        {
+          name: 'PBKDF2',
+          salt: saltBytes,
+          iterations: PBKDF2_ITERATIONS,
+          hash: 'SHA-256'
+        },
+        baseKey,
+        { name: 'AES-GCM', length: 256 },
+        extractable,
+        ['encrypt', 'decrypt']
+      )
+    }
+
+    // EC P-256 函数
+    async function importPrivateKeyFromD(d) {
+      const jwk = { kty: 'EC', crv: 'P-256', d: d }
+      return await subtle.importKey(
+        'jwk', jwk,
+        { name: 'ECDH', namedCurve: 'P-256' },
+        false,
+        ['deriveKey']
+      )
+    }
+
+    async function importPublicKeyFromJwk(jwkStr) {
+      const jwk = typeof jwkStr === 'string' ? JSON.parse(jwkStr) : jwkStr
+      return await subtle.importKey(
+        'jwk', jwk,
+        { name: 'ECDH', namedCurve: 'P-256' },
+        false,
+        []
+      )
+    }
+
+    async function encryptWithPublicKey(plaintext, publicKey) {
+      const ephemeralKeyPair = await subtle.generateKey(
+        { name: 'ECDH', namedCurve: 'P-256' },
+        true,
+        ['deriveKey']
+      )
+
+      const sharedKey = await subtle.deriveKey(
+        { name: 'ECDH', public: publicKey },
+        ephemeralKeyPair.privateKey,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt']
+      )
+
+      const iv = crypto.getRandomValues(new Uint8Array(12))
+      const encoded = textEncoder.encode(String(plaintext))
+      const ct = await subtle.encrypt({ name: 'AES-GCM', iv }, sharedKey, encoded)
+
+      const ephemPubJwk = await subtle.exportKey('jwk', ephemeralKeyPair.publicKey)
+
+      return JSON.stringify({
+        ephemPubKey: { x: ephemPubJwk.x, y: ephemPubJwk.y },
+        iv: bytesToBase64(iv),
+        ct: bytesToBase64(new Uint8Array(ct))
+      })
+    }
+
+    async function decryptWithPrivateKey(ciphertextJson, privateKey) {
+      const data = typeof ciphertextJson === 'string' ? JSON.parse(ciphertextJson) : ciphertextJson
+
+      const ephemPubKey = await subtle.importKey(
+        'jwk',
+        { kty: 'EC', crv: 'P-256', x: data.ephemPubKey.x, y: data.ephemPubKey.y },
+        { name: 'ECDH', namedCurve: 'P-256' },
+        false,
+        []
+      )
+
+      const sharedKey = await subtle.deriveKey(
+        { name: 'ECDH', public: ephemPubKey },
+        privateKey,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['decrypt']
+      )
+
+      const iv = base64ToBytes(data.iv)
+      const ct = base64ToBytes(data.ct)
+      const decrypted = await subtle.decrypt({ name: 'AES-GCM', iv }, sharedKey, ct)
+      return textDecoder.decode(decrypted)
+    }
+
+    // AES-GCM 字段加解密
+    async function encryptField(plaintext, key) {
+      if (plaintext === null || plaintext === undefined) return null
+      if (plaintext === '') return ''
+      if (!key) throw new Error('加密密钥未初始化')
+
+      const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH))
+      const encoded = textEncoder.encode(String(plaintext))
+      const ciphertext = await subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded)
+
+      return JSON.stringify({
+        iv: bytesToBase64(iv),
+        ct: bytesToBase64(new Uint8Array(ciphertext))
+      })
+    }
+
+    async function decryptField(ciphertext, key) {
+      if (ciphertext === null || ciphertext === undefined) return null
+      if (ciphertext === '') return ''
+      if (!key) throw new Error('解密密钥未初始化')
+
+      let parsed
+      try {
+        parsed = typeof ciphertext === 'string' ? JSON.parse(ciphertext) : ciphertext
+      } catch (e) {
+        throw new Error('密文格式无效（非 JSON）')
+      }
+
+      if (!parsed.iv || !parsed.ct) {
+        throw new Error('密文格式无效（缺 iv/ct）')
+      }
+
+      const iv = base64ToBytes(parsed.iv)
+      const ct = base64ToBytes(parsed.ct)
+
+      try {
+        const decrypted = await subtle.decrypt({ name: 'AES-GCM', iv }, key, ct)
+        return textDecoder.decode(decrypted)
+      } catch (e) {
+        throw new Error('解密失败：密钥不匹配或数据损坏')
+      }
+    }
+
+    async function encryptJson(obj, key) {
+      if (obj === null || obj === undefined) return null
+      if (!key) throw new Error('加密密钥未初始化')
+      return encryptField(JSON.stringify(obj), key)
+    }
+
+    async function decryptJson(ciphertext, key) {
+      if (ciphertext === null || ciphertext === undefined) return null
+      if (ciphertext === '' || ciphertext === '[]') return []
+      const plaintext = await decryptField(ciphertext, key)
+      if (!plaintext) return null
+      return JSON.parse(plaintext)
+    }
+
+    // Environment 加解密
+    async function encryptEnv(env, key, userId) {
+      if (!env) return null
+      const encrypted = {
+        alias: env.alias || '',
+        type: env.type || 'production',
+        group_id: env.group_id || env.groupId || 'ungrouped',
+        sort_order: env.sort_order || env.sortOrder || 0
+      }
+
+      if (!userId) throw new Error('user_id 为空，无法保存环境')
+      encrypted.user_id = userId
+
+      encrypted.username = await encryptField(env.username || '', key)
+      encrypted.password = await encryptField(env.password || '', key)
+      encrypted.custom_url = env.custom_url ? await encryptField(env.custom_url, key) : (env.customUrl ? await encryptField(env.customUrl, key) : null)
+      encrypted.totp_secret = env.totp_secret ? await encryptField(env.totp_secret, key) : (env.totpSecret ? await encryptField(env.totpSecret, key) : null)
+      encrypted.passkeys = (env.passkeys && env.passkeys.length > 0)
+        ? await encryptJson(env.passkeys, key)
+        : '[]'
+
+      if (env.id) encrypted.id = env.id
+      if (env.created_at) encrypted.created_at = env.created_at
+      else if (env.createdAt) encrypted.created_at = new Date(env.createdAt).toISOString()
+      if (env.updated_at) encrypted.updated_at = env.updated_at
+      else if (env.updatedAt) encrypted.updated_at = new Date(env.updatedAt).toISOString()
+
+      return encrypted
+    }
+
+    async function decryptEnv(row, key) {
+      if (!row) return null
+      let passkeys = []
+      try {
+        if (row.passkeys && row.passkeys !== '[]') {
+          if (typeof row.passkeys === 'string') {
+            passkeys = await decryptJson(row.passkeys, key) || []
+          } else if (Array.isArray(row.passkeys)) {
+            passkeys = row.passkeys
+          }
+        }
+      } catch (e) {
+        passkeys = []
+      }
+      return {
+        id: row.id,
+        alias: row.alias || '',
+        username: await decryptField(row.username, key),
+        password: await decryptField(row.password, key),
+        type: row.type || 'production',
+        customUrl: row.custom_url ? await decryptField(row.custom_url, key) : '',
+        groupId: row.group_id || 'ungrouped',
+        totpSecret: row.totp_secret ? await decryptField(row.totp_secret, key) : '',
+        passkeys: Array.isArray(passkeys) ? passkeys : [],
+        sortOrder: row.sort_order || 0,
+        createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+        updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : Date.now()
+      }
+    }
+
+    async function reencryptEnvs(rows, oldUserKey, newUserKey) {
+      return Promise.all(rows.map(async (row) => {
+        const env = await decryptEnv(row, oldUserKey)
+        return await encryptEnv(env, newUserKey, row.user_id)
+      }))
+    }
+
+    // ============================================
+    // UI 辅助函数
+    // ============================================
+
+    function showMessage(elId, type, text) {
+      const el = document.getElementById(elId)
+      el.className = 'message ' + type
+      el.textContent = text
+    }
+
+    function showStep(stepNum) {
+      for (let i = 1; i <= 4; i++) {
+        document.getElementById('step' + i).classList.add('hidden')
+      }
+      document.getElementById('step' + stepNum).classList.remove('hidden')
+    }
+
+    function getPasswordStrength(password) {
+      if (!password) return ''
+      if (password.length < 8) return 'weak'
+      if (password.length < 10) return 'medium'
+      if (/[A-Z]/.test(password) && /[0-9]/.test(password) && /[^A-Za-z0-9]/.test(password)) return 'strong'
+      if (password.length >= 12) return 'strong'
+      return 'medium'
+    }
+
+    document.getElementById('newPassword').addEventListener('input', function() {
+      const bar = document.getElementById('strengthBar')
+      const strength = getPasswordStrength(this.value)
+      bar.className = 'bar' + (strength ? ' ' + strength : '')
+    })
+
+    // Enter 键支持
+    document.getElementById('email').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') handleSendOtp()
+    })
+    document.getElementById('otpCode').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') handleVerifyOtp()
+    })
+    document.getElementById('recoveryKey').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') handleVerifyKey()
+    })
+    document.getElementById('newPassword').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') document.getElementById('confirmPassword').focus()
+    })
+    document.getElementById('confirmPassword').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') handleReset()
+    })
+
+    // ============================================
+    // 步骤 1：发送 OTP 验证码
+    // ============================================
+    async function handleSendOtp() {
+      const email = document.getElementById('email').value.trim()
+      const btn = document.getElementById('sendOtpBtn')
+
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        showMessage('step1Message', 'error', '请输入有效的邮箱地址')
+        return
+      }
+
+      btn.disabled = true
+      btn.innerHTML = '<span class="loading-spinner"></span> 发送中...'
+      showMessage('step1Message', 'info', '正在发送验证码...')
+
+      try {
+        const { error } = await supabaseClient.auth.signInWithOtp({ email })
+        if (error) throw error
+
+        userEmail = email
+        showMessage('step1Message', 'success', '验证码已发送，请查收邮件')
+
+        setTimeout(() => {
+          showStep(2)
+          document.getElementById('emailDisplay').textContent = email
+        }, 1000)
+      } catch (e) {
+        showMessage('step1Message', 'error', '发送失败：' + e.message)
+        btn.disabled = false
+        btn.textContent = '发送验证码'
+      }
+    }
+
+    // 重新发送
+    async function handleResendOtp() {
+      const resendBtn = document.getElementById('resendBtn')
+      if (!userEmail) return
+
+      resendBtn.style.pointerEvents = 'none'
+      resendBtn.style.color = '#5a6575'
+
+      try {
+        const { error } = await supabaseClient.auth.signInWithOtp({ email: userEmail })
+        if (error) throw error
+        showMessage('step2Message', 'success', '验证码已重新发送')
+      } catch (e) {
+        showMessage('step2Message', 'error', '重新发送失败：' + e.message)
+      } finally {
+        setTimeout(() => {
+          resendBtn.style.pointerEvents = ''
+          resendBtn.style.color = ''
+        }, 3000)
+      }
+    }
+
+    // ============================================
+    // 步骤 2：验证 OTP
+    // ============================================
+    async function handleVerifyOtp() {
+      const code = document.getElementById('otpCode').value.trim()
+      const btn = document.getElementById('verifyOtpBtn')
+
+      if (!code || code.length !== 6 || !/^\d{6}$/.test(code)) {
+        showMessage('step2Message', 'error', '请输入 6 位数字验证码')
+        return
+      }
+
+      btn.disabled = true
+      btn.innerHTML = '<span class="loading-spinner"></span> 验证中...'
+
+      try {
+        const { data, error } = await supabaseClient.auth.verifyOtp({
+          email: userEmail,
+          token: code,
+          type: 'email'
+        })
+
+        if (error) throw error
+        if (!data.user) throw new Error('验证失败：未获取到用户信息')
+
+        sessionUserId = data.user.id
+
+        // 拉取 user_secrets
+        const { data: secret, error: secretErr } = await supabaseClient
+          .from('user_secrets')
+          .select('recovery_password, recovery_public_key, salt')
+          .eq('user_id', sessionUserId)
+          .maybeSingle()
+
+        if (secretErr) throw new Error('读取用户数据失败：' + secretErr.message)
+        if (!secret) throw new Error('未找到用户密钥数据，请确认账号已注册')
+        if (!secret.recovery_password) throw new Error('该账号尚未设置恢复密钥，无法通过此方式恢复密码')
+        if (!secret.recovery_public_key) throw new Error('该账号缺少恢复公钥，数据不完整')
+
+        secretData = secret
+        showStep(3)
+      } catch (e) {
+        showMessage('step2Message', 'error', e.message || '验证失败')
+        btn.disabled = false
+        btn.textContent = '验证'
+      }
+    }
+
+    // ============================================
+    // 步骤 3：验证恢复密钥
+    // ============================================
+    async function handleVerifyKey() {
+      const dValue = document.getElementById('recoveryKey').value.trim()
+      const btn = document.getElementById('verifyKeyBtn')
+
+      if (!dValue) {
+        showMessage('step3Message', 'error', '请输入恢复密钥')
+        return
+      }
+
+      btn.disabled = true
+      btn.innerHTML = '<span class="loading-spinner"></span> 验证中...'
+
+      try {
+        // 导入私钥
+        const privateKey = await importPrivateKeyFromD(dValue)
+
+        // 解密旧密码
+        oldPassword = await decryptWithPrivateKey(secretData.recovery_password, privateKey)
+
+        if (!oldPassword) {
+          throw new Error('解密失败：密钥无效')
+        }
+
+        // 验证成功，进入步骤 4
+        showMessage('step3Message', 'success', '恢复密钥验证成功！')
+        setTimeout(() => {
+          showStep(4)
+        }, 800)
+      } catch (e) {
+        showMessage('step3Message', 'error', '恢复密钥无效，请检查后重新输入')
+        btn.disabled = false
+        btn.textContent = '验证密钥'
+      }
+    }
+
+    // 密钥文件上传
+    function handleKeyFileUpload(event) {
+      const file = event.target.files[0]
+      if (!file) return
+
+      const reader = new FileReader()
+      reader.onload = function(e) {
+        try {
+          const data = JSON.parse(e.target.result)
+          if (data.key) {
+            document.getElementById('recoveryKey').value = data.key
+          } else {
+            alert('文件格式不正确，未找到 key 字段')
+          }
+        } catch {
+          // 可能是纯文本文件
+          const text = e.target.result
+          if (text && text.length >= 40 && text.length <= 50) {
+            document.getElementById('recoveryKey').value = text.trim()
+          } else {
+            alert('文件格式不正确，请上传注册时保存的密钥文件')
+          }
+        }
+      }
+      reader.readAsText(file)
+    }
+
+    // ============================================
+    // 步骤 4：重置密码（重加密所有数据）
+    // ============================================
+    async function handleReset() {
+      const newPassword = document.getElementById('newPassword').value
+      const confirmPassword = document.getElementById('confirmPassword').value
+      const btn = document.getElementById('resetBtn')
+
+      if (!newPassword || newPassword.length < 8) {
+        showMessage('step4Message', 'error', '密码至少 8 个字符')
+        return
+      }
+      if (newPassword !== confirmPassword) {
+        showMessage('step4Message', 'error', '两次输入的密码不一致')
+        return
+      }
+
+      btn.disabled = true
+      btn.innerHTML = '<span class="loading-spinner"></span> 正在重置密码...'
+      showMessage('step4Message', 'info', '正在重新加密您的数据，请勿关闭页面...')
+
+      try {
+        // 1. 派生旧密钥和新密钥
+        const saltBytes = base64ToBytes(secretData.salt)
+        const oldKey = await deriveKey(oldPassword, saltBytes, true)
+        const newKey = await deriveKey(newPassword, saltBytes, true)
+
+        // 2. 拉取所有环境数据
+        const { data: envRows, error: envErr } = await supabaseClient
+          .from('environments')
+          .select('*')
+          .eq('user_id', sessionUserId)
+          .eq('is_deleted', false)
+
+        if (envErr) throw new Error('拉取环境数据失败：' + envErr.message)
+
+        // 3. 重加密所有环境数据
+        if (envRows && envRows.length > 0) {
+          showMessage('step4Message', 'info', `正在重新加密 ${envRows.length} 条环境数据...`)
+          const newEnvRows = await reencryptEnvs(envRows, oldKey, newKey)
+          const { error: envUpdateErr } = await supabaseClient
+            .from('environments')
+            .upsert(newEnvRows, { onConflict: 'id' })
+          if (envUpdateErr) throw new Error('更新环境数据失败：' + envUpdateErr.message)
+        }
+
+        // 4. 修改 auth 密码
+        showMessage('step4Message', 'info', '正在更新账户密码...')
+        const { error: pwdErr } = await supabaseClient.auth.updateUser({ password: newPassword })
+        if (pwdErr) throw new Error('修改账户密码失败：' + pwdErr.message)
+
+        // 5. 用公钥加密新密码，更新 recovery_password
+        showMessage('step4Message', 'info', '正在更新恢复密钥数据...')
+        const publicKey = await importPublicKeyFromJwk(secretData.recovery_public_key)
+        const newEncryptedPassword = await encryptWithPublicKey(newPassword, publicKey)
+        await supabaseClient
+          .from('user_secrets')
+          .update({ recovery_password: newEncryptedPassword })
+          .eq('user_id', sessionUserId)
+
+        // 6. 成功
+        for (let i = 1; i <= 4; i++) {
+          document.getElementById('step' + i).classList.add('hidden')
+        }
+        document.getElementById('successPage').classList.remove('hidden')
+      } catch (e) {
+        showMessage('step4Message', 'error', '重置失败：' + e.message)
+        btn.disabled = false
+        btn.textContent = '重置密码'
+      }
+    }
+  </script>
+</body>
+</html>

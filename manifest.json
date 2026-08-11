@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Salesforce Quick Login",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "One-click Salesforce login with Passkey authentication, TOTP 2FA, encrypted cloud sync and environment sharing.",
   "permissions": [
     "storage",

@@ -12,7 +12,7 @@ import { ref, readonly } from 'vue'
 import { getSupabase } from './useSupabase'
 import { deriveKey, generateSalt, bytesToBase64, exportKeyToJwk, importKeyFromJwk, getDeviceCode } from '../utils/crypto'
 import { STORAGE_KEY_SESSION } from '../utils/constants'
-import { SIGNUP_REDIRECT_URL, RESET_PASSWORD_REDIRECT_URL } from '../utils/supabaseConfig'
+import { WELCOME_PAGE_URL } from '../utils/supabaseConfig'
 
 const CRYPTO_KEY_KEY = '__sf_crypto_key'
 const LAST_LOGIN_DATE_KEY = '__sf_last_login_date'
@@ -514,10 +514,11 @@ function ensureListener() {
 /**
  * 注册
  * 流程：
- * 1. supabase.auth.signUp({email, password})
- * 2. Supabase 发送确认邮件
- * 3. 用户点击邮件链接确认后回到扩展登录
- * 注意：signUp 不会立即产生 session（除非关闭邮件确认）
+ * 1. 生成 salt + EC P-256 密钥对
+ * 2. 用公钥加密密码（用于密码恢复）
+ * 3. supabase.auth.signUp({email, password, emailRedirectTo: welcome.html?rk=d})
+ * 4. INSERT user_secrets（salt + 公钥 + 加密密码）
+ * 5. 邮件确认后跳转 welcome.html 显示恢复密钥；即时登录则用 chrome.tabs.create 打开
  */
 async function signUp({ email, password }) {
   authError.value = null
@@ -526,18 +527,49 @@ async function signUp({ email, password }) {
     const supabase = getSupabase()
     if (!supabase) throw new Error('Supabase 未初始化')
 
+    // 先生成 EC 密钥对 + salt + 加密密码
+    const {
+      generateRecoveryKeyPair, exportPublicKeyJwk, exportPrivateKeyD,
+      encryptWithPublicKey, generateSalt, bytesToBase64, deriveKey
+    } = await import('../utils/crypto')
+
+    const salt = generateSalt()
+    const saltB64 = bytesToBase64(salt)
+    const keyPair = await generateRecoveryKeyPair()
+    const encryptedPassword = await encryptWithPublicKey(password, keyPair.publicKey)
+    const publicKeyJwk = await exportPublicKeyJwk(keyPair.publicKey)
+    const privateKeyD = await exportPrivateKeyD(keyPair.privateKey)
+
+    // 构建带恢复密钥的跳转 URL（邮件确认后跳转至此页面显示私钥）
+    const welcomeUrl = `${WELCOME_PAGE_URL}?rk=${encodeURIComponent(privateKeyD)}`
+
     log('注册', { email })
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: SIGNUP_REDIRECT_URL }
+      options: { emailRedirectTo: welcomeUrl }
     })
 
     if (error) throw error
 
+    // 无论是否有 session，都插入 user_secrets（INSERT 策略为 to public，匿名可插入）
+    if (data.user?.id) {
+      const { error: insertErr } = await supabase
+        .from('user_secrets')
+        .insert({
+          user_id: data.user.id,
+          salt: saltB64,
+          recovery_public_key: publicKeyJwk,
+          recovery_password: encryptedPassword
+        })
+
+      if (insertErr) {
+        log('user_secrets 插入失败（可能已存在）', insertErr)
+      }
+    }
+
     if (data.session && data.user) {
       log('注册即登录（无邮件确认）')
-      const salt = await createUserSalt(data.user.id)
       _saltBytes = salt
       cryptoKey.value = await deriveKey(password, salt, true)
       currentUser.value = { id: data.user.id, email: data.user.email }
@@ -550,10 +582,18 @@ async function signUp({ email, password }) {
       // 更新设备码到数据库
       const deviceCode = getDeviceCode()
       await updateDeviceCode(data.user.id, deviceCode)
+
+      // 打开 welcome.html 显示恢复密钥
+      if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
+        chrome.tabs.create({ url: welcomeUrl })
+      } else {
+        window.open(welcomeUrl, '_blank')
+      }
+
       return { needsEmailConfirm: false }
     }
 
-    log('注册成功，等待邮件确认')
+    log('注册成功，等待邮件确认（恢复密钥将在确认邮件链接中展示）')
     return { needsEmailConfirm: true }
   } catch (e) {
     logError('注册失败', e)
@@ -604,10 +644,13 @@ async function signIn({ email, password }) {
     await saveCryptoKey(cryptoKey.value)
     await recordLogin()
     await exportUserKeyToSession()
-    
+
     // 更新设备码到数据库
     const deviceCode = getDeviceCode()
     await updateDeviceCode(data.user.id, deviceCode)
+
+    // 旧用户迁移：若无 recovery 密钥则自动生成
+    await migrateRecoveryKeyIfNeeded(data.user.id, password)
 
     log('登录成功', { userId: data.user.id, email: data.user.email })
     return { success: true }
@@ -755,11 +798,14 @@ async function unlockWithPassword(password) {
     await saveCryptoKey(cryptoKey.value)
     await recordLogin()
     await exportUserKeyToSession()
-    
+
     // 更新设备码到数据库
     const deviceCode = getDeviceCode()
     await updateDeviceCode(currentUser.value.id, deviceCode)
-    
+
+    // 旧用户迁移：若无 recovery 密钥则自动生成
+    await migrateRecoveryKeyIfNeeded(currentUser.value.id, password)
+
     log('解锁成功（用密码派生密钥）')
     return { success: true }
   } catch (e) {
@@ -837,6 +883,28 @@ async function changePassword({ oldPassword, newPassword }) {
     // 6. 更新内存中的 cryptoKey 并保存到本地
     cryptoKey.value = newKey
     await saveCryptoKey(newKey)
+
+    // 7. 用公钥加密新密码，更新 recovery_password（不需要私钥）
+    try {
+      const { data: secretRow } = await supabase
+        .from('user_secrets')
+        .select('recovery_public_key')
+        .eq('user_id', currentUser.value.id)
+        .maybeSingle()
+
+      if (secretRow?.recovery_public_key) {
+        const { importPublicKeyFromJwk, encryptWithPublicKey } = await import('../utils/crypto')
+        const publicKey = await importPublicKeyFromJwk(secretRow.recovery_public_key)
+        const encryptedPassword = await encryptWithPublicKey(newPassword, publicKey)
+        await supabase
+          .from('user_secrets')
+          .update({ recovery_password: encryptedPassword })
+          .eq('user_id', currentUser.value.id)
+      }
+    } catch (e) {
+      logError('更新 recovery_password 失败（不影响改密码主流程）', e)
+    }
+
     log('修改密码完成')
     return { success: true }
   } catch (e) {
@@ -907,25 +975,52 @@ async function reencryptAll(password) {
 }
 
 /**
- * 忘记密码：发送重置邮件
- * 注意：重置密码后旧密文将无法解密（密钥派生自旧密码）
+ * 旧用户迁移：若无 recovery 密钥则自动生成
+ * 在 signIn / unlockWithPassword 成功后调用
+ * @param {string} userId - 用户 ID
+ * @param {string} password - 当前明文密码（用于加密）
  */
-async function resetPassword(email) {
-  authError.value = null
+async function migrateRecoveryKeyIfNeeded(userId, password) {
   try {
     const supabase = getSupabase()
-    if (!supabase) throw new Error('Supabase 未初始化')
+    if (!supabase) return
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: RESET_PASSWORD_REDIRECT_URL
-    })
-    if (error) throw error
-    log('重置邮件已发送', { email })
-    return { success: true }
+    const { data: secretRow } = await supabase
+      .from('user_secrets')
+      .select('recovery_password')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (!secretRow || secretRow.recovery_password) return
+
+    // 无 recovery 密钥，自动生成
+    const {
+      generateRecoveryKeyPair, exportPublicKeyJwk, exportPrivateKeyD, encryptWithPublicKey
+    } = await import('../utils/crypto')
+
+    const keyPair = await generateRecoveryKeyPair()
+    const encryptedPassword = await encryptWithPublicKey(password, keyPair.publicKey)
+    const publicKeyJwk = await exportPublicKeyJwk(keyPair.publicKey)
+    const privateKeyD = await exportPrivateKeyD(keyPair.privateKey)
+
+    await supabase
+      .from('user_secrets')
+      .update({
+        recovery_password: encryptedPassword,
+        recovery_public_key: publicKeyJwk
+      })
+      .eq('user_id', userId)
+
+    // 打开 welcome.html 显示恢复密钥
+    const welcomeUrl = `${WELCOME_PAGE_URL}?rk=${encodeURIComponent(privateKeyD)}`
+    if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
+      chrome.tabs.create({ url: welcomeUrl })
+    } else {
+      window.open(welcomeUrl, '_blank')
+    }
+    log('旧用户迁移：已生成恢复密钥并打开展示页面')
   } catch (e) {
-    logError('发送重置邮件失败', e)
-    authError.value = e.message || String(e)
-    throw e
+    logError('旧用户迁移生成恢复密钥失败', e)
   }
 }
 
@@ -960,7 +1055,6 @@ export function useAuth() {
     unlockWithPassword,
     changePassword,
     reencryptAll,
-    resetPassword,
     getSalt,
     getCryptoKeyRaw,
     getDailyLoginStatus,

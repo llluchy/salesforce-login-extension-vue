@@ -95,7 +95,7 @@
         <a href="#" @click.prevent="handleSignOut">退出并切换账户</a>
       </div>
       <div class="auth-footer" v-else-if="isLoginMode">
-        <a href="#" @click.prevent="showResetDialog = true">忘记密码？</a>
+        <a href="#" @click.prevent="goToRecoveryPage">忘记密码？</a>
       </div>
     </form>
 
@@ -108,45 +108,21 @@
       <ul>
         <li>数据使用 AES-256-GCM 加密后再上传</li>
         <li>加密密钥由您的登录密码派生，<strong>服务器无法解密</strong></li>
-        <li><strong>忘记密码将导致已有数据无法恢复</strong></li>
+        <li>忘记密码可使用<strong>恢复密钥</strong>找回（注册时生成，请妥善保存）</li>
         <li>同一账号同时只能在一台设备上登录</li>
       </ul>
     </div>
-
-    <!-- 忘记密码弹窗 -->
-    <Transition name="modal">
-      <div class="reset-overlay" v-if="showResetDialog" @click.self="showResetDialog = false">
-        <div class="reset-modal">
-          <div class="reset-header">
-            <h3>重置密码</h3>
-            <button class="reset-close" @click="showResetDialog = false">×</button>
-          </div>
-          <div class="reset-body">
-            <div class="reset-warn">
-              ⚠️ 重置密码后，由于加密密钥派生自旧密码，<strong>您已有的所有数据将永久无法解密</strong>。
-              建议您尽量回忆密码；如确实需要重置，请确认接受数据丢失。
-            </div>
-            <div class="form-field">
-              <label>注册邮箱</label>
-              <input v-model.trim="resetEmail" type="email" placeholder="you@example.com" />
-            </div>
-            <button class="btn-submit" @click="handleResetPassword" :disabled="isLoading">
-              发送重置邮件
-            </button>
-          </div>
-        </div>
-      </div>
-    </Transition>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useAuth } from '../composables/useAuth'
+import { RECOVERY_PAGE_URL } from '../utils/supabaseConfig'
 
 const emit = defineEmits(['authed'])
 
-const { signIn, signUp, signOut, resetPassword, unlockWithPassword, isLoading, currentUser, authError } = useAuth()
+const { signIn, signUp, signOut, unlockWithPassword, isLoading, currentUser, authError } = useAuth()
 
 // 监听 authError 变化（因为 getSession 是异步的，可能在组件挂载后才设置错误）
 watch(authError, (newVal) => {
@@ -180,10 +156,6 @@ const password = ref('')
 const confirmPassword = ref('')
 const errorMessage = ref('')
 const successMessage = ref('')
-
-// 忘记密码
-const showResetDialog = ref(false)
-const resetEmail = ref('')
 
 const switchMode = (m) => {
   mode.value = m
@@ -250,19 +222,11 @@ const handleSignOut = async () => {
   }
 }
 
-const handleResetPassword = async () => {
-  errorMessage.value = ''
-  successMessage.value = ''
-  if (!resetEmail.value || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resetEmail.value)) {
-    errorMessage.value = '请输入有效的邮箱'
-    return
-  }
-  try {
-    await resetPassword(resetEmail.value)
-    successMessage.value = `重置邮件已发送到 ${resetEmail.value}，请查收邮件完成重置`
-    showResetDialog.value = false
-  } catch (e) {
-    errorMessage.value = e.message || '发送失败'
+const goToRecoveryPage = () => {
+  if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
+    chrome.tabs.create({ url: RECOVERY_PAGE_URL })
+  } else {
+    window.open(RECOVERY_PAGE_URL, '_blank')
   }
 }
 
@@ -556,79 +520,5 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* 忘记密码弹窗 */
-.reset-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(13, 71, 161, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 16px;
-  box-sizing: border-box;
-}
-
-.reset-modal {
-  background: white;
-  border-radius: 8px;
-  width: 100%;
-  max-width: 360px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-}
-
-.reset-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
-  color: white;
-  border-radius: 8px 8px 0 0;
-}
-
-.reset-header h3 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.reset-close {
-  background: none;
-  border: none;
-  color: white;
-  font-size: 22px;
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-}
-
-.reset-body {
-  padding: 16px;
-}
-
-.reset-warn {
-  padding: 10px 12px;
-  background: #fff3e0;
-  border: 1px solid #ffb74d;
-  color: #e65100;
-  border-radius: 5px;
-  font-size: 11px;
-  line-height: 1.6;
-  margin-bottom: 12px;
-}
-
-.reset-warn strong {
-  color: #bf360c;
-}
-
-/* Transition */
-.modal-enter-active, .modal-leave-active {
-  transition: opacity 0.2s;
-}
-.modal-enter-from, .modal-leave-to {
-  opacity: 0;
 }
 </style>

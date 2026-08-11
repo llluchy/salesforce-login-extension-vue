@@ -20,10 +20,12 @@ export const IV_LENGTH = 12
 // ============================================
 // 邮件跳转链接配置
 // ============================================
-// 注册确认邮件跳转：指向说明文档页面
+// 注册确认邮件跳转：指向说明文档页面（fallback）
 export const SIGNUP_REDIRECT_URL = 'https://49.232.62.216:12116/s/6ae104f5-978a-4214-9c44-0f3843200e7e/doc/5l255so6k05pio-DgX5OhiKa0'
-// 重置密码邮件跳转：指向 GitHub Pages 重置密码页面
-export const RESET_PASSWORD_REDIRECT_URL = 'https://llluchy.github.io/salesforce-login-extension-vue/reset-password.html'
+// 注册确认后跳转页面 URL（显示恢复密钥，实际使用时会附加 ?rk=xxx 参数）
+export const WELCOME_PAGE_URL = 'https://llluchy.github.io/salesforce-login-extension-vue/welcome.html'
+// 密码恢复页面 URL（GitHub Pages 独立页面）
+export const RECOVERY_PAGE_URL = 'https://llluchy.github.io/salesforce-login-extension-vue/recover.html'
 
 // 标记配置是否已填写
 export const isSupabaseConfigured = () => {
