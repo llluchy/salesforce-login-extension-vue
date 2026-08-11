@@ -244,6 +244,8 @@
           此页面仅能通过密码恢复邮件中的链接访问。<br>
           请在插件中点击「忘记密码？」，输入邮箱后查收恢复邮件。
         </p>
+        <div id="errorDetailBox" class="hidden" style="margin-top:20px;padding:14px 16px;background:#2b1a1a;border:1px solid #4a2727;border-radius:8px;text-align:left;font-size:13px;line-height:1.5;color:#ff9999;word-break:break-all;"></div>
+        <div id="debugBox" class="hidden" style="margin-top:10px;padding:10px 12px;background:#1a1f2b;border:1px solid #2a3550;border-radius:6px;text-align:left;font-size:11px;line-height:1.4;color:#8899bb;word-break:break-all;"></div>
       </div>
     </div>
 
@@ -611,6 +613,33 @@
       document.getElementById('errorPage').classList.remove('hidden')
     }
 
+    // 显示错误页面并附加详细错误信息和调试信息
+    function showErrorPageWithDetail(detail) {
+      showErrorPage()
+      if (detail) {
+        const box = document.getElementById('errorDetailBox')
+        box.textContent = detail
+        box.classList.remove('hidden')
+      }
+      // 调试信息：当前 URL、hash 参数
+      try {
+        const debugBox = document.getElementById('debugBox')
+        const debug = [
+          '当前URL: ' + window.location.href.split('#')[0],
+          'Hash params: ' + (window.location.hash || '(none)'),
+          'access_token: ' + (new URLSearchParams(window.location.hash.substring(1)).get('access_token') ? '已找到' : '缺失'),
+          'refresh_token: ' + (new URLSearchParams(window.location.hash.substring(1)).get('refresh_token') ? '已找到' : '缺失'),
+          'type: ' + (new URLSearchParams(window.location.hash.substring(1)).get('type') || '缺失'),
+          'error_code: ' + (new URLSearchParams(window.location.search.substring(1)).get('error_code') || '无'),
+          'error: ' + (new URLSearchParams(window.location.search.substring(1)).get('error') || '无'),
+          'error_description: ' + (new URLSearchParams(window.location.search.substring(1)).get('error_description') || '无')
+        ].join('\n')
+        debugBox.textContent = '[调试信息]\n' + debug
+        debugBox.classList.remove('hidden')
+        console.warn('[Recover Debug]', debug)
+      } catch (_) { /* ignore */ }
+    }
+
     function getPasswordStrength(password) {
       if (!password) return ''
       if (password.length < 8) return 'weak'
@@ -646,11 +675,11 @@
 
       const accessToken = params.get('access_token')
       const refreshToken = params.get('refresh_token')
-      const type = params.get('type')
 
-      // magic link 跳转后 type 为 'magiclink'，部分情况可能为 'email'
-      if (!accessToken || (type !== 'magiclink' && type !== 'email')) {
-        showErrorPage()
+      // 放宽判断：只要有 access_token 就尝试，不依赖 type
+      // Supabase magic link/invite/email confirm 跳转时 type 可能为 magiclink/email/signup 等，也可能缺失
+      if (!accessToken) {
+        showErrorPageWithDetail('链接参数不完整：未找到 access_token。请确认：\n1. 是否直接从邮件中的链接点击跳转过来（非手动复制/粘贴）；\n2. Supabase Dashboard → URL Configuration → Redirect URLs 中已添加您的 recover.html 完整域名；\n3. 请重新点击邮件中的链接，或在插件中重新发起「忘记密码」请求。')
         return
       }
 
@@ -662,14 +691,16 @@
         })
 
         if (error) {
-          showErrorPage()
+          console.error('[Recover] setSession 失败:', error)
+          showErrorPageWithDetail('链接已过期或无效：' + error.message)
           return
         }
 
         // 获取用户信息
         const { data: { user }, error: userErr } = await supabaseClient.auth.getUser()
         if (userErr || !user) {
-          showErrorPage()
+          console.error('[Recover] getUser 失败:', userErr)
+          showErrorPageWithDetail('获取用户信息失败：' + (userErr?.message || '未知错误'))
           return
         }
 
@@ -682,19 +713,25 @@
           .eq('user_id', sessionUserId)
           .maybeSingle()
 
-        if (secretErr || !secret) {
-          showErrorPage()
+        if (secretErr) {
+          console.error('[Recover] 查询 user_secrets 失败:', secretErr)
+          showErrorPageWithDetail('读取用户密钥失败：' + secretErr.message)
+          return
+        }
+        if (!secret) {
+          showErrorPageWithDetail('未找到该账号的密钥数据，请确认账号已完成注册并正常登录过')
           return
         }
         if (!secret.recovery_password) {
-          showErrorPage()
+          showErrorPageWithDetail('该账号尚未设置恢复密钥，无法通过此方式恢复密码。请重新注册或联系支持。')
           return
         }
 
         secretData = secret
         showStep(1)
       } catch (e) {
-        showErrorPage()
+        console.error('[Recover] 初始化异常:', e)
+        showErrorPageWithDetail('初始化失败：' + e.message)
       }
     }
 
