@@ -71,9 +71,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
   .catch(() => {});
 
-let pendingQRCallback = null;
-
-chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'captureVisibleTab') {
     chrome.tabs.captureVisibleTab({ format: 'png' })
       .then((dataUrl) => sendResponse({ success: true, dataUrl }))
@@ -82,24 +80,18 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
   }
 
   if (request.action === 'startAreaQR') {
-    handleStartAreaQR(sendResponse);
-    return true;
+    handleStartAreaQR();
+    return; // 无需 sendResponse，结果通过 qrScanResult/qrScanError 推送
   }
 
   if (request.action === 'areaSelected') {
-    if (pendingQRCallback) {
-      pendingQRCallback({ success: true, dataUrl: request.dataUrl });
-      pendingQRCallback = null;
-    }
+    chrome.runtime.sendMessage({ action: 'qrScanResult', dataUrl: request.dataUrl }).catch(() => {});
     sendResponse({ success: true });
     return true;
   }
 
   if (request.action === 'areaCancelled') {
-    if (pendingQRCallback) {
-      pendingQRCallback({ success: false, error: request.reason || 'cancelled' });
-      pendingQRCallback = null;
-    }
+    chrome.runtime.sendMessage({ action: 'qrScanCancelled', reason: request.reason || 'cancelled' }).catch(() => {});
     sendResponse({ success: true });
     return true;
   }
@@ -125,55 +117,49 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
 
   // ========== Session Storage 回退（当 content script 无法直接访问时）==========
   if (request.action === '__sf_sessionGet') {
-    try {
-      const result = await chrome.storage.session.get(request.keys);
-      _bgLog('__sf_sessionGet', { keys: request.keys, foundKeys: Object.keys(result) });
-      
-      // 如果请求 sf_isLoggedIn 但 session storage 中没有，
-       // 回退到 chrome.storage.local 检查是否已有持久化的 Supabase session
-       if (request.keys.includes('sf_isLoggedIn') && !result.sf_isLoggedIn) {
-         const localData = await chrome.storage.local.get(['__sf_supabase_session']);
-         if (localData.__sf_supabase_session) {
-           _bgLog('__sf_sessionGet 从 local storage 恢复登录状态');
-           result.sf_isLoggedIn = true;
-         }
-       }
-      
-      sendResponse(result);
-    } catch (e) {
-      console.error('[BG] sessionGet 失败', e);
-      sendResponse({});
-    }
+    (async () => {
+      try {
+        const result = await chrome.storage.session.get(request.keys);
+        _bgLog('__sf_sessionGet', { keys: request.keys, foundKeys: Object.keys(result) });
+        
+        if (request.keys.includes('sf_isLoggedIn') && !result.sf_isLoggedIn) {
+           const localData = await chrome.storage.local.get(['__sf_supabase_session']);
+           if (localData.__sf_supabase_session) {
+             _bgLog('__sf_sessionGet 从 local storage 恢复登录状态');
+             result.sf_isLoggedIn = true;
+           }
+        }
+        
+        sendResponse(result);
+      } catch (e) {
+        console.error('[BG] sessionGet 失败', e);
+        sendResponse({});
+      }
+    })();
     return true;
   }
 
   if (request.action === '__sf_sessionSet') {
-    try {
-      await chrome.storage.session.set(request.data);
-      sendResponse({ success: true });
-    } catch (e) {
-      console.error('[BG] sessionSet 失败', e);
-      sendResponse({ success: false });
-    }
+    chrome.storage.session.set(request.data)
+      .then(() => sendResponse({ success: true }))
+      .catch((e) => { console.error('[BG] sessionSet 失败', e); sendResponse({ success: false }); });
     return true;
   }
 
   // ========== Local Storage 读取（供 page-world 回退使用）==========
   if (request.action === '__sf_localGet') {
-    try {
-      const result = await chrome.storage.local.get(request.keys);
-      _bgLog('__sf_localGet', { keys: request.keys, foundKeys: Object.keys(result) });
-      sendResponse(result);
-    } catch (e) {
-      console.error('[BG] localGet 失败', e);
-      sendResponse({});
-    }
+    chrome.storage.local.get(request.keys)
+      .then((result) => {
+        _bgLog('__sf_localGet', { keys: request.keys, foundKeys: Object.keys(result) });
+        sendResponse(result);
+      })
+      .catch((e) => { console.error('[BG] localGet 失败', e); sendResponse({}); });
     return true;
   }
 
 })
 
-async function handleStartAreaQR(sendResponse) {
+async function handleStartAreaQR() {
   try {
     // 遍历所有普通浏览器窗口的所有标签，找到第一个 active 标签
     const windows = await chrome.windows.getAll({
@@ -195,13 +181,13 @@ async function handleStartAreaQR(sendResponse) {
     }
     
     if (!tab || !tab.id) {
-      sendResponse({ success: false, error: '未找到活动标签页' });
+      chrome.runtime.sendMessage({ action: 'qrScanError', error: '未找到活动标签页' }).catch(() => {});
       return;
     }
 
     const url = tab.url || '';
     if (url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith('edge://') || url === '') {
-      sendResponse({ success: false, error: '当前页面不支持截屏操作' });
+      chrome.runtime.sendMessage({ action: 'qrScanError', error: '当前页面不支持截屏操作' }).catch(() => {});
       return;
     }
 
@@ -214,9 +200,14 @@ async function handleStartAreaQR(sendResponse) {
       });
     } catch (sendError) {
       if (sendError.message && sendError.message.includes('Receiving end does not exist')) {
+        // 从 manifest 动态获取 content script 路径（CRXJS 打包后文件名带 hash）
+        const contentScripts = chrome.runtime.getManifest().content_scripts;
+        const contentJsFile = contentScripts && contentScripts[0] && contentScripts[0].js[0]
+          ? contentScripts[0].js[0]
+          : 'content.js';
         await chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          files: ['content.js']
+          files: [contentJsFile]
         });
         await chrome.tabs.sendMessage(tab.id, {
           action: 'startAreaSelect',
@@ -226,14 +217,13 @@ async function handleStartAreaQR(sendResponse) {
         throw sendError;
       }
     }
-
-    pendingQRCallback = sendResponse;
+    // 成功启动框选，结果将通过 areaSelected/areaCancelled → qrScanResult/qrScanCancelled 推送
   } catch (error) {
     let errorMsg = error.message;
     if (errorMsg.includes('activeTab') || errorMsg.includes('Cannot access') || errorMsg.includes('Receiving end does not exist')) {
       errorMsg = '当前页面不支持截屏操作';
     }
-    sendResponse({ success: false, error: errorMsg });
+    chrome.runtime.sendMessage({ action: 'qrScanError', error: errorMsg }).catch(() => {});
   }
 }
 

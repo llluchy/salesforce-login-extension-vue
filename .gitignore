@@ -12,4 +12,8 @@ gitee-token.txt
 salesforce-quick-login-v2.0.crx
 salesforce-quick-login-v2.0.pem
 salesforce-quick-login-v2.0.zip
+salesforce-quick-login-v2.2.0.zip
 salesforce-quick-login/
+
+# Trae AI 工作区文件
+.trae/

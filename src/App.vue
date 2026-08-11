@@ -38,7 +38,6 @@
       @close="closeEditModal"
       @save="handleSaveEnv"
       @add-group="handleAddGroupFromModal"
-      @scan-qr="handleScanQR"
     />
     
     <GroupModal
@@ -115,7 +114,7 @@
             <div class="pk-item-name">{{ env.alias || '(未命名)' }}</div>
             <div class="pk-item-user">{{ env.username || '未设置账号' }}</div>
             <div class="pk-item-tags">
-              <span class="pk-item-tag">{{ env.type === 'production' ? '生产' : env.type === 'sandbox' ? '沙箱' : '自定义' }}</span>
+              <span class="pk-item-tag">{{ env.type === 'production' ? 'Production' : env.type === 'sandbox' ? 'Sandbox' : 'Custom' }}</span>
               <span v-if="!env.username || !env.password" class="pk-item-tag pk-item-tag-warn">未完善</span>
             </div>
           </div>
@@ -131,7 +130,7 @@
         <div class="pk-footer" v-if="!pkDialog.showCreateForm">
           <button class="pk-btn pk-btn-link" @click="pkDialog.showCreateForm = true; pkDialog.newAlias = ''">创建新环境</button>
           <button class="pk-btn pk-btn-cancel" @click="cancelPasskeyDialog">
-            {{ pkDialog.type === 'get' && pkDialog.environments.length === 0 ? '使用系统 Passkey' : '取消' }}
+            取消/使用其他验证方式
           </button>
         </div>
       </div>
@@ -163,8 +162,8 @@ import ShareDialog from './components/ShareDialog.vue'
 
 const { loadEnvironments, saveEnvironments, deleteEnvironment, loadGroups, saveGroups, deleteGroup } = useStorage()
 const { isAuthed, getCryptoKeyRaw, currentUser, getSession, getUnlockStatus } = useAuth()
-const { login } = useLogin()
-const { generateCode, fillTotpCode } = useTotp()
+const { login, fillTotpCode } = useLogin()
+const { generateCode, scanQR } = useTotp()
 
 const environments = ref([])
 const groups = ref([])
@@ -306,8 +305,19 @@ const showToast = (message, type = 'success') => {
   }, 3000)
 }
 
-const openEditModal = (env = null) => {
-  editingEnv.value = env ? { ...env } : null
+const openEditModal = async (env = null) => {
+  if (env?.id) {
+    // 从存储加载最新数据，避免绑定 Passkey 后本地列表未刷新导致编辑时覆盖丢失
+    try {
+      const fresh = await loadEnvironments()
+      const freshEnv = fresh.find(e => e.id === env.id)
+      editingEnv.value = freshEnv ? { ...freshEnv } : { ...env }
+    } catch (e) {
+      editingEnv.value = { ...env }
+    }
+  } else {
+    editingEnv.value = env ? { ...env } : null
+  }
   editModalVisible.value = true
 }
 
@@ -615,12 +625,23 @@ const handleCopySuccess = (code) => {
 const handleScanQR = async () => {
   try {
     const result = await scanQR()
+    if (result && result.success === false) {
+      showToast(result.error || '扫码失败', 'error')
+      return
+    }
     if (result && result.secret) {
       if (editingEnv.value) {
         editingEnv.value.totpSecret = result.secret
       }
+      showToast('识别成功')
     }
   } catch (error) {
+    // 用户主动取消（ESC / 框太小）不算失败
+    const cancelReasons = ['cancelled', 'too small', 'user cancelled', '已取消']
+    if (typeof error === 'string' && cancelReasons.some(r => error.includes(r))) {
+      showToast('已取消截图扫码')
+      return
+    }
     showToast(error || '扫码失败', 'error')
   }
 }
@@ -936,11 +957,11 @@ onBeforeUnmount(() => {
   margin: 0 0 12px 0;
 }
 .pk-item {
-  padding: 10px 12px;
+  padding: 6px 12px;
   border: 1px solid #e0e0e0;
   border-left: 3px solid #1976d2;
   border-radius: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -950,22 +971,22 @@ onBeforeUnmount(() => {
 }
 .pk-item-name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
   color: #0d47a1;
 }
 .pk-item-user {
-  font-size: 12px;
+  font-size: 11px;
   color: #777;
-  margin-top: 2px;
+  margin-top: 1px;
 }
 .pk-item-tag {
   display: inline-block;
-  font-size: 11px;
-  padding: 2px 8px;
+  font-size: 10px;
+  padding: 1px 7px;
   border-radius: 10px;
   background: #e3f2fd;
   color: #1565c0;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 .pk-empty {
   text-align: center;

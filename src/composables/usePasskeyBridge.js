@@ -191,6 +191,11 @@ export function initPasskeyBridge() {
     'sf:passkeyGet': handlePasskeyGet,
     'sf:passkeyCreate': handlePasskeyCreate,
 
+    // ====== Ping：content.js 检测 Side Panel 是否可用 ======
+    'bg:ping': async () => {
+      return { open: true, authed: !!isAuthed.value && !!getCryptoKeyRaw() }
+    },
+
     // ====== 数据管理（保留 bg:* 兼容） ======
     'bg:updatePasskeySignCount': async (msg) => {
       const authErr = requireAuth()

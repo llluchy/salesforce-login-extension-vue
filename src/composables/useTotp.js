@@ -71,15 +71,36 @@ export function useTotp() {
   const scanQR = () => {
     if (isChromeExt) {
       return new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({
-          action: 'startAreaQR'
-        }, (response) => {
-          if (response && response.success) {
-            resolve(response)
-          } else {
-            reject(response ? response.error : 'Failed to start QR scan')
+        // 监听 background 推送的扫码结果
+        const listener = async (msg) => {
+          if (msg.action === 'qrScanResult') {
+            chrome.runtime.onMessage.removeListener(listener)
+            try {
+              const parsed = await parseQRCode(msg.dataUrl)
+              const raw = parsed || ''
+              const secret = raw.startsWith('otpauth://')
+                ? (new URL(raw)).searchParams.get('secret') || ''
+                : raw
+              if (!secret) {
+                resolve({ success: false, error: '未识别到二维码，请确认框选区域包含二维码' })
+              } else {
+                resolve({ success: true, secret, raw })
+              }
+            } catch (e) {
+              resolve({ success: false, error: '二维码识别失败' })
+            }
+          } else if (msg.action === 'qrScanCancelled') {
+            chrome.runtime.onMessage.removeListener(listener)
+            reject('cancelled')
+          } else if (msg.action === 'qrScanError') {
+            chrome.runtime.onMessage.removeListener(listener)
+            reject(msg.error || '扫码失败')
           }
-        })
+        }
+        chrome.runtime.onMessage.addListener(listener)
+
+        // 启动截图扫码（不依赖回调，结果通过上述 listener 接收）
+        chrome.runtime.sendMessage({ action: 'startAreaQR' })
       })
     } else {
       return new Promise((resolve, reject) => {

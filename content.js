@@ -252,22 +252,52 @@ function cropImage(dataUrl, x, y, width, height) {
       return;
     }
 
-    // ====== sf:passkeyGet / sf:passkeyCreate：fire-and-forget 发给 Side Panel ======
-    // 响应由 sf:passkeyResult listener 接收后回传给 page-world
+    // ====== sf:passkeyGet / sf:passkeyCreate：发送给 Side Panel ======
+    // 如果 Side Panel 没开，2秒后显示气泡并轮询，Panel 打开后自动重发
     if (action === 'sf:passkeyGet' || action === 'sf:passkeyCreate') {
-      try {
-        chrome.runtime.sendMessage({
-          action: action,
-          requestId: requestId,
-          data: event.data.data
-        }).catch(e => {
-          console.error(`${CT} [${action}] sendMessage 失败:`, e.message);
-          respondToPageWorld(requestId, { success: false, error: e.message });
-        });
-      } catch (e) {
-        console.error(`${CT} [${action}] 失败:`, e.message, e.stack);
-        respondToPageWorld(requestId, { success: false, error: e.message });
+      const passkeyAction = action;
+      const passkeyData = event.data.data;
+      let stopped = false;
+      let sent = false;
+      let pingInterval = null;
+
+      function trySend() {
+        if (stopped || sent) return;
+        chrome.runtime.sendMessage({ action: 'bg:ping' }).then(response => {
+          if (stopped || sent) return;
+          if (response && response.open) {
+            // Side Panel 已打开，发送 Passkey 请求
+            sent = true;
+            chrome.runtime.sendMessage({
+              action: passkeyAction,
+              requestId: requestId,
+              data: passkeyData
+            }).catch(() => {});
+            if (pingInterval) {
+              clearInterval(pingInterval);
+              pingInterval = null;
+            }
+          }
+          // response === undefined: Side Panel 未打开，继续等待轮询
+        }).catch(() => {});
       }
+
+      // 立即尝试发送（Side Panel 可能已打开）
+      trySend();
+
+      // 2秒后如果没有响应，显示气泡并开始轮询
+      const bubbleTimer = setTimeout(() => {
+        if (stopped || sent) return;
+        showPasskeyBubble();
+        pingInterval = setInterval(trySend, 3000);
+      }, 2000);
+
+      pendingPasskeyRequests.set(requestId, () => {
+        stopped = true;
+        clearTimeout(bubbleTimer);
+        if (pingInterval) clearInterval(pingInterval);
+        hidePasskeyBubble();
+      });
       return;
     }
 
@@ -277,8 +307,191 @@ function cropImage(dataUrl, x, y, width, height) {
   // ====== 接收 Side Panel 的直接响应（sf:passkeyResult） ======
   chrome.runtime.onMessage.addListener((request, sender) => {
     if (request.action !== 'sf:passkeyResult') return;
+    const cleanup = pendingPasskeyRequests.get(request.requestId);
+    if (cleanup) {
+      cleanup();
+      pendingPasskeyRequests.delete(request.requestId);
+    }
     respondToPageWorld(request.requestId, request.data);
   });
+
+  // ============================================
+  // Passkey 气泡提示（Side Panel 未打开时显示）
+  // ============================================
+  const pendingPasskeyRequests = new Map();
+  let bubbleEl = null;
+  let bubbleCountdown = null;
+
+  function showPasskeyBubble() {
+    if (bubbleEl) return; // 已显示
+
+    // 注入样式（只注入一次）
+    if (!document.getElementById('sf-bubble-style')) {
+      const style = document.createElement('style');
+      style.id = 'sf-bubble-style';
+      style.textContent = `
+        @keyframes sf-bubble-in {
+          from { opacity: 0; transform: translateX(20px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes sf-bubble-out {
+          from { opacity: 1; transform: translateX(0); }
+          to { opacity: 0; transform: translateX(20px); }
+        }
+        #sf-passkey-bubble.sf-closing {
+          animation: sf-bubble-out 0.3s ease forwards;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    bubbleEl = document.createElement('div');
+    bubbleEl.id = 'sf-passkey-bubble';
+    bubbleEl.style.cssText = `
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 2147483647;
+      background: #fff;
+      border: 1px solid #1976d2;
+      border-radius: 10px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.18);
+      padding: 0;
+      width: 300px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      color: #333;
+      overflow: hidden;
+      animation: sf-bubble-in 0.3s ease;
+    `;
+
+    // ---- 头部：来源标识 ----
+    const header = document.createElement('div');
+    header.style.cssText = `
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: linear-gradient(135deg, #1565c0, #1976d2);
+      color: #fff;
+    `;
+    const iconUrl = chrome.runtime.getURL('icons/icon48.png');
+    header.innerHTML = `
+      <div style="width:22px;height:22px;border-radius:4px;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <img src="${iconUrl}" style="width:16px;height:16px;" alt="ext"/>
+      </div>
+      <span style="font-weight:600;font-size:13px;">Salesforce Quick Login</span>
+    `;
+
+    // ---- 内容区 ----
+    const body = document.createElement('div');
+    body.style.cssText = `padding: 12px 14px;`;
+
+    const title = document.createElement('div');
+    title.textContent = '需要打开扩展面板';
+    title.style.cssText = `font-weight: 600; color: #0d47a1; margin-bottom: 6px; font-size: 14px;`;
+
+    const desc = document.createElement('div');
+    desc.textContent = '网页正在请求 Passkey 验证，请打开扩展侧边栏以完成验证。';
+    desc.style.cssText = `color: #555; line-height: 1.5; margin-bottom: 10px;`;
+
+    // ---- 操作指引图 ----
+    const guide = document.createElement('div');
+    guide.style.cssText = `
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      background: #f0f7ff;
+      border-radius: 6px;
+      margin-bottom: 10px;
+    `;
+    guide.innerHTML = `
+      <div style="position:relative;width:28px;height:28px;flex-shrink:0;">
+        <svg width="28" height="28" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">
+          <rect x="2" y="4" width="24" height="18" rx="2" fill="#e3f2fd" stroke="#1976d2" stroke-width="1"/>
+          <rect x="2" y="4" width="24" height="4" rx="2" fill="#bbdefb"/>
+          <circle cx="5.5" cy="6" r="0.8" fill="#1976d2"/>
+          <circle cx="8" cy="6" r="0.8" fill="#1976d2"/>
+          <circle cx="10.5" cy="6" r="0.8" fill="#1976d2"/>
+        </svg>
+        <div style="position:absolute;top:-3px;right:-3px;width:12px;height:12px;border-radius:50%;background:#ff6f00;border:1.5px solid #fff;box-shadow:0 0 4px rgba(255,111,0,0.5);"></div>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+        <path d="M3 8 L13 8 M9 4 L13 8 L9 12" stroke="#1976d2" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div style="width:28px;height:28px;flex-shrink:0;border-radius:6px;background:#fff;border:1.5px solid #1976d2;display:flex;align-items:center;justify-content:center;">
+        <img src="${iconUrl}" style="width:18px;height:18px;" alt="ext"/>
+      </div>
+      <span style="font-size:11px;color:#1976d2;font-weight:500;">点击图标</span>
+    `;
+
+    body.appendChild(title);
+    body.appendChild(desc);
+    body.appendChild(guide);
+
+    // ---- 底部：倒计时 + 关闭 ----
+    const footer = document.createElement('div');
+    footer.style.cssText = `
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      background: #fafafa;
+      border-top: 1px solid #eee;
+    `;
+
+    const countdownEl = document.createElement('span');
+    countdownEl.style.cssText = `font-size: 11px; color: #999;`;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '关闭';
+    closeBtn.style.cssText = `
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-size: 12px;
+      color: #1976d2;
+      font-weight: 500;
+      padding: 2px 8px;
+    `;
+    closeBtn.onmouseover = () => { closeBtn.style.color = '#0d47a1'; };
+    closeBtn.onmouseout = () => { closeBtn.style.color = '#1976d2'; };
+    closeBtn.onclick = hidePasskeyBubble;
+
+    footer.appendChild(countdownEl);
+    footer.appendChild(closeBtn);
+
+    bubbleEl.appendChild(header);
+    bubbleEl.appendChild(body);
+    bubbleEl.appendChild(footer);
+    document.body.appendChild(bubbleEl);
+
+    // ---- 倒计时自动关闭（30秒）----
+    let remaining = 30;
+    countdownEl.textContent = `${remaining}s 后自动关闭`;
+    bubbleCountdown = setInterval(() => {
+      remaining--;
+      if (remaining <= 0) {
+        hidePasskeyBubble();
+      } else {
+        countdownEl.textContent = `${remaining}s 后自动关闭`;
+      }
+    }, 1000);
+  }
+
+  function hidePasskeyBubble() {
+    if (bubbleCountdown) {
+      clearInterval(bubbleCountdown);
+      bubbleCountdown = null;
+    }
+    if (bubbleEl) {
+      bubbleEl.classList.add('sf-closing');
+      const el = bubbleEl;
+      setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 300);
+      bubbleEl = null;
+    }
+  }
 
   injectPageWorldScript();
   console.log(`${CT} ========== 桥接模块初始化完成 (v4) ==========`);

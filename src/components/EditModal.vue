@@ -22,7 +22,17 @@
           
           <div class="form-group">
             <label>密码 *</label>
-            <input type="password" v-model="form.password" placeholder="输入密码" required />
+            <div class="password-input-wrapper">
+              <input :type="showPassword ? 'text' : 'password'" v-model="form.password" placeholder="输入密码" required />
+              <button type="button" class="password-toggle" @click="showPassword = !showPassword" :title="showPassword ? '隐藏密码' : '显示密码'">
+                <svg v-if="showPassword" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z"/><circle cx="8" cy="8" r="2"/>
+                </svg>
+                <svg v-else viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z"/><circle cx="8" cy="8" r="2"/><path d="M2.5 2.5l11 11"/>
+                </svg>
+              </button>
+            </div>
           </div>
           
           <div class="form-group">
@@ -59,26 +69,8 @@
             <input type="text" v-model="form.totpSecret" placeholder="输入或从二维码获取" />
           </div>
 
-          <div class="form-group" v-if="firstPasskey">
-            <label>已绑定 Passkey</label>
-            <div class="passkey-tag">
-              <svg v-if="firstPasskey.type === 'system'" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M8 1a3 3 0 00-3 3v3H4a2 2 0 00-2 2v4a2 2 0 002 2h8a2 2 0 002-2v-4a2 2 0 00-2-2h-1V4a3 3 0 00-3-3z"/>
-              </svg>
-              <svg v-else viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="1" y="2" width="14" height="10" rx="1.5"/><path d="M5 14h6M8 12v2"/>
-              </svg>
-              <span class="passkey-tag-label">{{ firstPasskey.label || firstPasskey.rpId }}</span>
-              <button class="passkey-tag-remove" @click="removePasskey(firstPasskey.id)" title="删除">
-                <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M4 4l8 8M12 4l-8 8"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-          
           <div class="form-group qr-actions">
-            <button class="btn btn-sm btn-outline" @click="$emit('scan-qr')" title="截图识别二维码">
+            <button class="btn btn-sm btn-outline" @click="handleScanQR" title="截图识别二维码">
               <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="5" height="5" rx="1"/><rect x="10" y="1" width="5" height="5" rx="1"/><rect x="1" y="10" width="5" height="5" rx="1"/><rect x="10" y="10" width="3" height="3" rx="0.5"/><rect x="14" y="10" width="1" height="1"/><rect x="10" y="14" width="1" height="1"/><rect x="14" y="14" width="1" height="1"/></svg>
               截图扫码
             </button>
@@ -88,6 +80,20 @@
             </button>
             <input ref="fileInputRef" type="file" accept="image/*" style="display:none" @change="handleFileSelect" />
           </div>
+
+          <div class="form-group" v-if="firstPasskey">
+            <label>已绑定 Passkey</label>
+            <div class="passkey-tag">
+              <svg v-if="firstPasskey.type === 'system'" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M8 1a3 3 0 00-3 3v3H4a2 2 0 00-2 2v4a2 2 0 002 2h8a2 2 0 002-2v-4a2 2 0 00-2-2h-1V4a3 3 0 00-3-3z"/>
+              </svg>
+              <svg v-else viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="1" y="2" width="14" height="10" rx="1.5"/><path d="M5 14h6M8 12v2"/>
+              </svg>
+              <span class="passkey-tag-label">{{ firstPasskeyLabel }}</span>
+            </div>
+          </div>
+          
         </div>
         
         <div class="modal-footer">
@@ -118,11 +124,13 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['close', 'save', 'add-group', 'scan-qr'])
+const emit = defineEmits(['close', 'save', 'add-group'])
 
-const { parseQRCode } = useTotp()
+const { parseQRCode, scanQR } = useTotp()
 
 const fileInputRef = ref(null)
+
+const showPassword = ref(false)
 
 const form = ref({
   alias: '',
@@ -138,7 +146,7 @@ const form = ref({
 const validPasskeys = computed(() => {
   if (!Array.isArray(form.value.passkeys)) return []
   return form.value.passkeys.filter(pk => {
-    return pk && typeof pk === 'object' && pk.id && pk.rpId && typeof pk.type === 'string'
+    return pk && typeof pk === 'object' && (pk.id || pk.credentialId) && pk.rpId
   })
 })
 
@@ -146,15 +154,15 @@ const firstPasskey = computed(() => {
   return validPasskeys.value[0] || null
 })
 
+const firstPasskeyLabel = computed(() => {
+  const pk = firstPasskey.value
+  if (!pk) return ''
+  return pk.label || pk.userName || pk.userDisplayName || pk.rpId || '已绑定 Passkey'
+})
+
 const handleTypeChange = () => {
   if (form.value.type !== 'custom') {
     form.value.customUrl = ''
-  }
-}
-
-const removePasskey = (passkeyId) => {
-  if (form.value.passkeys) {
-    form.value.passkeys = form.value.passkeys.filter(pk => pk.id !== passkeyId)
   }
 }
 
@@ -170,6 +178,27 @@ const openQuickAddGroup = async () => {
 
 const triggerFileInput = () => {
   fileInputRef.value?.click()
+}
+
+const handleScanQR = async () => {
+  try {
+    const result = await scanQR()
+    if (result && result.success === false) {
+      alert(result.error || '扫码失败')
+      return
+    }
+    if (result && result.secret) {
+      form.value.totpSecret = result.secret
+    } else {
+      alert('未识别到二维码')
+    }
+  } catch (error) {
+    const cancelReasons = ['cancelled', 'too small', 'user cancelled', '已取消']
+    if (typeof error === 'string' && cancelReasons.some(r => error.includes(r))) {
+      return
+    }
+    alert(error || '扫码失败')
+  }
 }
 
 const handleFileSelect = async (e) => {
@@ -365,6 +394,32 @@ watch(() => props.visible, (val) => {
   box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.1);
 }
 
+.password-input-wrapper {
+  position: relative;
+}
+
+.password-input-wrapper input {
+  padding-right: 30px;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #999;
+  padding: 4px;
+  display: flex;
+  border-radius: 3px;
+}
+
+.password-toggle:hover {
+  color: #1976d2;
+}
+
 .group-select-wrapper {
   display: flex;
   gap: 6px;
@@ -491,25 +546,9 @@ watch(() => props.visible, (val) => {
 
 .passkey-tag-label {
   flex: 1;
-  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.passkey-tag-remove {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #999;
-  padding: 2px;
-  display: flex;
-  border-radius: 3px;
-}
-
-.passkey-tag-remove:hover {
-  color: #e74c3c;
-  background: rgba(231, 76, 60, 0.1);
 }
 
 .modal-enter-from .modal-content,
