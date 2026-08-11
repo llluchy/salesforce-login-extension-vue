@@ -12,7 +12,7 @@ import { ref, readonly } from 'vue'
 import { getSupabase } from './useSupabase'
 import { deriveKey, generateSalt, bytesToBase64, exportKeyToJwk, importKeyFromJwk, getDeviceCode } from '../utils/crypto'
 import { STORAGE_KEY_SESSION } from '../utils/constants'
-import { WELCOME_PAGE_URL } from '../utils/supabaseConfig'
+import { WELCOME_PAGE_URL, RECOVERY_PAGE_URL } from '../utils/supabaseConfig'
 
 const CRYPTO_KEY_KEY = '__sf_crypto_key'
 const LAST_LOGIN_DATE_KEY = '__sf_last_login_date'
@@ -1032,6 +1032,33 @@ function getSalt() {
 }
 
 /**
+ * 发送密码恢复邮件（magic link）
+ * 用户点击邮件中的链接后跳转到 recover.html，携带 session token
+ */
+async function sendRecoveryEmail(email) {
+  authError.value = null
+  try {
+    const supabase = getSupabase()
+    if (!supabase) throw new Error('Supabase 未初始化')
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: RECOVERY_PAGE_URL
+      },
+      shouldCreateUser: false
+    })
+    if (error) throw error
+    log('恢复邮件已发送', { email })
+    return { success: true }
+  } catch (e) {
+    logError('发送恢复邮件失败', e)
+    authError.value = e.message || String(e)
+    throw e
+  }
+}
+
+/**
  * 获取原始 CryptoKey（不经过 readonly Proxy，避免 Web Crypto API 拒绝）
  */
 export function getCryptoKeyRaw() {
@@ -1055,6 +1082,7 @@ export function useAuth() {
     unlockWithPassword,
     changePassword,
     reencryptAll,
+    sendRecoveryEmail,
     getSalt,
     getCryptoKeyRaw,
     getDailyLoginStatus,

@@ -95,7 +95,7 @@
         <a href="#" @click.prevent="handleSignOut">退出并切换账户</a>
       </div>
       <div class="auth-footer" v-else-if="isLoginMode">
-        <a href="#" @click.prevent="goToRecoveryPage">忘记密码？</a>
+        <a href="#" @click.prevent="showRecoveryDialog = true">忘记密码？</a>
       </div>
     </form>
 
@@ -112,17 +112,40 @@
         <li>同一账号同时只能在一台设备上登录</li>
       </ul>
     </div>
+
+    <!-- 忘记密码弹窗（发送恢复邮件） -->
+    <Transition name="modal">
+      <div class="recovery-overlay" v-if="showRecoveryDialog" @click.self="showRecoveryDialog = false">
+        <div class="recovery-modal">
+          <div class="recovery-header">
+            <h3>密码恢复</h3>
+            <button class="recovery-close" @click="showRecoveryDialog = false">×</button>
+          </div>
+          <div class="recovery-body">
+            <div class="recovery-info">
+              输入您的注册邮箱，我们将发送恢复链接到您的邮箱。请查收邮件并点击链接进入密码恢复页面。
+            </div>
+            <div class="form-field">
+              <label>注册邮箱</label>
+              <input v-model.trim="recoveryEmail" type="email" placeholder="you@example.com" @keydown.enter="handleSendRecoveryEmail" />
+            </div>
+            <button class="btn-submit" @click="handleSendRecoveryEmail" :disabled="recoverySending">
+              {{ recoverySending ? '发送中...' : '发送恢复链接' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useAuth } from '../composables/useAuth'
-import { RECOVERY_PAGE_URL } from '../utils/supabaseConfig'
 
 const emit = defineEmits(['authed'])
 
-const { signIn, signUp, signOut, unlockWithPassword, isLoading, currentUser, authError } = useAuth()
+const { signIn, signUp, signOut, unlockWithPassword, sendRecoveryEmail, isLoading, currentUser, authError } = useAuth()
 
 // 监听 authError 变化（因为 getSession 是异步的，可能在组件挂载后才设置错误）
 watch(authError, (newVal) => {
@@ -156,6 +179,11 @@ const password = ref('')
 const confirmPassword = ref('')
 const errorMessage = ref('')
 const successMessage = ref('')
+
+// 忘记密码（发送恢复邮件）
+const showRecoveryDialog = ref(false)
+const recoveryEmail = ref('')
+const recoverySending = ref(false)
 
 const switchMode = (m) => {
   mode.value = m
@@ -222,11 +250,22 @@ const handleSignOut = async () => {
   }
 }
 
-const goToRecoveryPage = () => {
-  if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
-    chrome.tabs.create({ url: RECOVERY_PAGE_URL })
-  } else {
-    window.open(RECOVERY_PAGE_URL, '_blank')
+const handleSendRecoveryEmail = async () => {
+  errorMessage.value = ''
+  successMessage.value = ''
+  if (!recoveryEmail.value || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recoveryEmail.value)) {
+    errorMessage.value = '请输入有效的邮箱'
+    return
+  }
+  recoverySending.value = true
+  try {
+    await sendRecoveryEmail(recoveryEmail.value)
+    successMessage.value = `恢复链接已发送到 ${recoveryEmail.value}，请查收邮件并点击链接完成密码恢复`
+    showRecoveryDialog.value = false
+  } catch (e) {
+    errorMessage.value = e.message || '发送失败'
+  } finally {
+    recoverySending.value = false
   }
 }
 
@@ -520,5 +559,75 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 忘记密码弹窗 */
+.recovery-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 71, 161, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.recovery-modal {
+  background: white;
+  border-radius: 8px;
+  width: 100%;
+  max-width: 360px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.recovery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+  color: white;
+  border-radius: 8px 8px 0 0;
+}
+
+.recovery-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.recovery-close {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.recovery-body {
+  padding: 16px;
+}
+
+.recovery-info {
+  padding: 10px 12px;
+  background: #e8f4fc;
+  border: 1px solid #b3d9f2;
+  color: #01579b;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+/* Transition */
+.modal-enter-active, .modal-leave-active {
+  transition: opacity 0.2s;
+}
+.modal-enter-from, .modal-leave-to {
+  opacity: 0;
 }
 </style>

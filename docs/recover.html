@@ -132,15 +132,6 @@
       opacity: 0.5;
       cursor: not-allowed;
     }
-    .btn-secondary {
-      background: #222836;
-      color: #e8eaf0;
-      border: 1px solid #2a3040;
-    }
-    .btn-secondary:hover {
-      background: #2a3040;
-      border-color: #0176D3;
-    }
     .message {
       margin-top: 14px;
       padding: 11px 14px;
@@ -229,74 +220,41 @@
       color: #4fc3f7;
       text-decoration: none;
     }
-    .otp-hint {
-      font-size: 12px;
-      color: #8b95a5;
-      margin-top: 8px;
-      text-align: center;
-    }
-    .resend-link {
-      color: #4fc3f7;
-      cursor: pointer;
-      text-decoration: underline;
-    }
-    .resend-link:disabled {
-      color: #5a6575;
-      cursor: not-allowed;
-      text-decoration: none;
-    }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="logo">SALESFORCE QUICK LOGIN</div>
 
-    <!-- 步骤 1：输入邮箱 -->
-    <div id="step1">
+    <!-- 加载中（验证 magic link） -->
+    <div id="loadingPage">
       <h1>密码恢复</h1>
-      <p class="desc">请输入您的注册邮箱，我们将发送验证码</p>
+      <p class="desc">正在验证恢复链接...</p>
+      <div style="text-align:center;padding:20px 0;">
+        <div class="loading-spinner" style="width:32px;height:32px;border-width:3px;"></div>
+      </div>
+    </div>
+
+    <!-- 错误提示（链接无效） -->
+    <div id="errorPage" class="hidden">
+      <div style="text-align:center;padding:20px 0;">
+        <div style="font-size:48px;margin-bottom:16px;opacity:0.6;">🔒</div>
+        <h1>链接无效</h1>
+        <p class="desc">
+          此页面仅能通过密码恢复邮件中的链接访问。<br>
+          请在插件中点击「忘记密码？」，输入邮箱后查收恢复邮件。
+        </p>
+      </div>
+    </div>
+
+    <!-- 步骤 1：输入恢复密钥 -->
+    <div id="step1" class="hidden">
+      <h1>输入恢复密钥</h1>
+      <p class="desc">邮箱验证成功，请输入注册时保存的 43 字符恢复密钥</p>
       <div class="step-indicator">
         <div class="step-dot active">1</div>
         <div class="step-dot">2</div>
         <div class="step-dot">3</div>
-        <div class="step-dot">4</div>
-      </div>
-      <div class="form-group">
-        <label>注册邮箱</label>
-        <input type="email" id="email" placeholder="you@example.com" autocomplete="email" />
-      </div>
-      <button class="btn btn-primary" id="sendOtpBtn" onclick="handleSendOtp()">发送验证码</button>
-      <div id="step1Message" class="message"></div>
-    </div>
-
-    <!-- 步骤 2：输入验证码 -->
-    <div id="step2" class="hidden">
-      <h1>验证邮箱</h1>
-      <p class="desc">验证码已发送至 <span id="emailDisplay"></span></p>
-      <div class="step-indicator">
-        <div class="step-dot done">✓</div>
-        <div class="step-dot active">2</div>
-        <div class="step-dot">3</div>
-        <div class="step-dot">4</div>
-      </div>
-      <div class="form-group">
-        <label>验证码</label>
-        <input type="text" id="otpCode" placeholder="6位数字验证码" maxlength="6" autocomplete="one-time-code" />
-        <div class="otp-hint">未收到？<span class="resend-link" id="resendBtn" onclick="handleResendOtp()">重新发送</span></div>
-      </div>
-      <button class="btn btn-primary" id="verifyOtpBtn" onclick="handleVerifyOtp()">验证</button>
-      <div id="step2Message" class="message"></div>
-    </div>
-
-    <!-- 步骤 3：输入恢复密钥 -->
-    <div id="step3" class="hidden">
-      <h1>输入恢复密钥</h1>
-      <p class="desc">请输入注册时保存的 43 字符恢复密钥</p>
-      <div class="step-indicator">
-        <div class="step-dot done">✓</div>
-        <div class="step-dot done">✓</div>
-        <div class="step-dot active">3</div>
-        <div class="step-dot">4</div>
       </div>
       <div class="form-group">
         <label>恢复密钥</label>
@@ -308,18 +266,17 @@
         <div class="hint">密钥格式为 43 个字符（A-Za-z0-9-_），也可上传保存的密钥文件</div>
       </div>
       <button class="btn btn-primary" id="verifyKeyBtn" onclick="handleVerifyKey()">验证密钥</button>
-      <div id="step3Message" class="message"></div>
+      <div id="step1Message" class="message"></div>
     </div>
 
-    <!-- 步骤 4：设置新密码 -->
-    <div id="step4" class="hidden">
+    <!-- 步骤 2：设置新密码 -->
+    <div id="step2" class="hidden">
       <h1>设置新密码</h1>
       <p class="desc">旧密码已验证成功，请设置您的新密码</p>
       <div class="step-indicator">
         <div class="step-dot done">✓</div>
-        <div class="step-dot done">✓</div>
-        <div class="step-dot done">✓</div>
-        <div class="step-dot active">4</div>
+        <div class="step-dot active">2</div>
+        <div class="step-dot">3</div>
       </div>
       <div class="form-group">
         <label>新密码</label>
@@ -331,7 +288,7 @@
         <input type="password" id="confirmPassword" placeholder="再次输入新密码" autocomplete="new-password" />
       </div>
       <button class="btn btn-primary" id="resetBtn" onclick="handleReset()">重置密码</button>
-      <div id="step4Message" class="message"></div>
+      <div id="step2Message" class="message"></div>
     </div>
 
     <!-- 成功页面 -->
@@ -368,7 +325,6 @@
     const textDecoder = new TextDecoder()
 
     // 全局状态
-    let userEmail = ''
     let sessionUserId = null
     let secretData = null       // { recovery_password, recovery_public_key, salt }
     let oldPassword = null      // 解密后的旧密码（仅在内存中，不显示）
@@ -629,10 +585,30 @@
     }
 
     function showStep(stepNum) {
-      for (let i = 1; i <= 4; i++) {
+      document.getElementById('loadingPage').classList.add('hidden')
+      document.getElementById('errorPage').classList.add('hidden')
+      document.getElementById('successPage').classList.add('hidden')
+      for (let i = 1; i <= 2; i++) {
         document.getElementById('step' + i).classList.add('hidden')
       }
       document.getElementById('step' + stepNum).classList.remove('hidden')
+    }
+
+    function showSuccess() {
+      document.getElementById('loadingPage').classList.add('hidden')
+      document.getElementById('errorPage').classList.add('hidden')
+      for (let i = 1; i <= 2; i++) {
+        document.getElementById('step' + i).classList.add('hidden')
+      }
+      document.getElementById('successPage').classList.remove('hidden')
+    }
+
+    function showErrorPage() {
+      document.getElementById('loadingPage').classList.add('hidden')
+      for (let i = 1; i <= 2; i++) {
+        document.getElementById('step' + i).classList.add('hidden')
+      }
+      document.getElementById('errorPage').classList.remove('hidden')
     }
 
     function getPasswordStrength(password) {
@@ -651,12 +627,6 @@
     })
 
     // Enter 键支持
-    document.getElementById('email').addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') handleSendOtp()
-    })
-    document.getElementById('otpCode').addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') handleVerifyOtp()
-    })
     document.getElementById('recoveryKey').addEventListener('keydown', function(e) {
       if (e.key === 'Enter') handleVerifyKey()
     })
@@ -668,87 +638,42 @@
     })
 
     // ============================================
-    // 步骤 1：发送 OTP 验证码
+    // 初始化：解析 magic link 跳转的 URL hash
     // ============================================
-    async function handleSendOtp() {
-      const email = document.getElementById('email').value.trim()
-      const btn = document.getElementById('sendOtpBtn')
+    async function init() {
+      const hash = window.location.hash.substring(1)
+      const params = new URLSearchParams(hash)
 
-      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        showMessage('step1Message', 'error', '请输入有效的邮箱地址')
+      const accessToken = params.get('access_token')
+      const refreshToken = params.get('refresh_token')
+      const type = params.get('type')
+
+      // magic link 跳转后 type 为 'magiclink'，部分情况可能为 'email'
+      if (!accessToken || (type !== 'magiclink' && type !== 'email')) {
+        showErrorPage()
         return
       }
 
-      btn.disabled = true
-      btn.innerHTML = '<span class="loading-spinner"></span> 发送中...'
-      showMessage('step1Message', 'info', '正在发送验证码...')
-
       try {
-        const { error } = await supabaseClient.auth.signInWithOtp({ email })
-        if (error) throw error
-
-        userEmail = email
-        showMessage('step1Message', 'success', '验证码已发送，请查收邮件')
-
-        setTimeout(() => {
-          showStep(2)
-          document.getElementById('emailDisplay').textContent = email
-        }, 1000)
-      } catch (e) {
-        showMessage('step1Message', 'error', '发送失败：' + e.message)
-        btn.disabled = false
-        btn.textContent = '发送验证码'
-      }
-    }
-
-    // 重新发送
-    async function handleResendOtp() {
-      const resendBtn = document.getElementById('resendBtn')
-      if (!userEmail) return
-
-      resendBtn.style.pointerEvents = 'none'
-      resendBtn.style.color = '#5a6575'
-
-      try {
-        const { error } = await supabaseClient.auth.signInWithOtp({ email: userEmail })
-        if (error) throw error
-        showMessage('step2Message', 'success', '验证码已重新发送')
-      } catch (e) {
-        showMessage('step2Message', 'error', '重新发送失败：' + e.message)
-      } finally {
-        setTimeout(() => {
-          resendBtn.style.pointerEvents = ''
-          resendBtn.style.color = ''
-        }, 3000)
-      }
-    }
-
-    // ============================================
-    // 步骤 2：验证 OTP
-    // ============================================
-    async function handleVerifyOtp() {
-      const code = document.getElementById('otpCode').value.trim()
-      const btn = document.getElementById('verifyOtpBtn')
-
-      if (!code || code.length !== 6 || !/^\d{6}$/.test(code)) {
-        showMessage('step2Message', 'error', '请输入 6 位数字验证码')
-        return
-      }
-
-      btn.disabled = true
-      btn.innerHTML = '<span class="loading-spinner"></span> 验证中...'
-
-      try {
-        const { data, error } = await supabaseClient.auth.verifyOtp({
-          email: userEmail,
-          token: code,
-          type: 'email'
+        // 设置 session
+        const { error } = await supabaseClient.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken || ''
         })
 
-        if (error) throw error
-        if (!data.user) throw new Error('验证失败：未获取到用户信息')
+        if (error) {
+          showErrorPage()
+          return
+        }
 
-        sessionUserId = data.user.id
+        // 获取用户信息
+        const { data: { user }, error: userErr } = await supabaseClient.auth.getUser()
+        if (userErr || !user) {
+          showErrorPage()
+          return
+        }
+
+        sessionUserId = user.id
 
         // 拉取 user_secrets
         const { data: secret, error: secretErr } = await supabaseClient
@@ -757,29 +682,31 @@
           .eq('user_id', sessionUserId)
           .maybeSingle()
 
-        if (secretErr) throw new Error('读取用户数据失败：' + secretErr.message)
-        if (!secret) throw new Error('未找到用户密钥数据，请确认账号已注册')
-        if (!secret.recovery_password) throw new Error('该账号尚未设置恢复密钥，无法通过此方式恢复密码')
-        if (!secret.recovery_public_key) throw new Error('该账号缺少恢复公钥，数据不完整')
+        if (secretErr || !secret) {
+          showErrorPage()
+          return
+        }
+        if (!secret.recovery_password) {
+          showErrorPage()
+          return
+        }
 
         secretData = secret
-        showStep(3)
+        showStep(1)
       } catch (e) {
-        showMessage('step2Message', 'error', e.message || '验证失败')
-        btn.disabled = false
-        btn.textContent = '验证'
+        showErrorPage()
       }
     }
 
     // ============================================
-    // 步骤 3：验证恢复密钥
+    // 步骤 1：验证恢复密钥
     // ============================================
     async function handleVerifyKey() {
       const dValue = document.getElementById('recoveryKey').value.trim()
       const btn = document.getElementById('verifyKeyBtn')
 
       if (!dValue) {
-        showMessage('step3Message', 'error', '请输入恢复密钥')
+        showMessage('step1Message', 'error', '请输入恢复密钥')
         return
       }
 
@@ -797,13 +724,13 @@
           throw new Error('解密失败：密钥无效')
         }
 
-        // 验证成功，进入步骤 4
-        showMessage('step3Message', 'success', '恢复密钥验证成功！')
+        // 验证成功，进入步骤 2
+        showMessage('step1Message', 'success', '恢复密钥验证成功！')
         setTimeout(() => {
-          showStep(4)
+          showStep(2)
         }, 800)
       } catch (e) {
-        showMessage('step3Message', 'error', '恢复密钥无效，请检查后重新输入')
+        showMessage('step1Message', 'error', '恢复密钥无效，请检查后重新输入')
         btn.disabled = false
         btn.textContent = '验证密钥'
       }
@@ -837,7 +764,7 @@
     }
 
     // ============================================
-    // 步骤 4：重置密码（重加密所有数据）
+    // 步骤 2：重置密码（重加密所有数据）
     // ============================================
     async function handleReset() {
       const newPassword = document.getElementById('newPassword').value
@@ -845,17 +772,17 @@
       const btn = document.getElementById('resetBtn')
 
       if (!newPassword || newPassword.length < 8) {
-        showMessage('step4Message', 'error', '密码至少 8 个字符')
+        showMessage('step2Message', 'error', '密码至少 8 个字符')
         return
       }
       if (newPassword !== confirmPassword) {
-        showMessage('step4Message', 'error', '两次输入的密码不一致')
+        showMessage('step2Message', 'error', '两次输入的密码不一致')
         return
       }
 
       btn.disabled = true
       btn.innerHTML = '<span class="loading-spinner"></span> 正在重置密码...'
-      showMessage('step4Message', 'info', '正在重新加密您的数据，请勿关闭页面...')
+      showMessage('step2Message', 'info', '正在重新加密您的数据，请勿关闭页面...')
 
       try {
         // 1. 派生旧密钥和新密钥
@@ -874,7 +801,7 @@
 
         // 3. 重加密所有环境数据
         if (envRows && envRows.length > 0) {
-          showMessage('step4Message', 'info', `正在重新加密 ${envRows.length} 条环境数据...`)
+          showMessage('step2Message', 'info', `正在重新加密 ${envRows.length} 条环境数据...`)
           const newEnvRows = await reencryptEnvs(envRows, oldKey, newKey)
           const { error: envUpdateErr } = await supabaseClient
             .from('environments')
@@ -883,12 +810,12 @@
         }
 
         // 4. 修改 auth 密码
-        showMessage('step4Message', 'info', '正在更新账户密码...')
+        showMessage('step2Message', 'info', '正在更新账户密码...')
         const { error: pwdErr } = await supabaseClient.auth.updateUser({ password: newPassword })
         if (pwdErr) throw new Error('修改账户密码失败：' + pwdErr.message)
 
         // 5. 用公钥加密新密码，更新 recovery_password
-        showMessage('step4Message', 'info', '正在更新恢复密钥数据...')
+        showMessage('step2Message', 'info', '正在更新恢复密钥数据...')
         const publicKey = await importPublicKeyFromJwk(secretData.recovery_public_key)
         const newEncryptedPassword = await encryptWithPublicKey(newPassword, publicKey)
         await supabaseClient
@@ -897,16 +824,16 @@
           .eq('user_id', sessionUserId)
 
         // 6. 成功
-        for (let i = 1; i <= 4; i++) {
-          document.getElementById('step' + i).classList.add('hidden')
-        }
-        document.getElementById('successPage').classList.remove('hidden')
+        showSuccess()
       } catch (e) {
-        showMessage('step4Message', 'error', '重置失败：' + e.message)
+        showMessage('step2Message', 'error', '重置失败：' + e.message)
         btn.disabled = false
         btn.textContent = '重置密码'
       }
     }
+
+    // 启动
+    init()
   </script>
 </body>
 </html>
