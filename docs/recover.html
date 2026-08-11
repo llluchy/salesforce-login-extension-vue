@@ -245,7 +245,7 @@
           请在插件中点击「忘记密码？」，输入邮箱后查收恢复邮件。
         </p>
         <div id="errorDetailBox" class="hidden" style="margin-top:20px;padding:14px 16px;background:#2b1a1a;border:1px solid #4a2727;border-radius:8px;text-align:left;font-size:13px;line-height:1.5;color:#ff9999;word-break:break-all;"></div>
-        <div id="debugBox" class="hidden" style="margin-top:10px;padding:10px 12px;background:#1a1f2b;border:1px solid #2a3550;border-radius:6px;text-align:left;font-size:11px;line-height:1.4;color:#8899bb;word-break:break-all;"></div>
+        <div id="debugBox" style="display:none;margin-top:10px;padding:10px 12px;background:#1a1f2b;border:1px solid #2a3550;border-radius:6px;text-align:left;font-size:11px;line-height:1.4;color:#8899bb;word-break:break-all;"></div>
       </div>
     </div>
 
@@ -657,7 +657,8 @@
           'error_description: ' + (new URLSearchParams(window.location.search.substring(1)).get('error_description') || '无')
         ].join('\n')
         debugBox.textContent = '[调试信息]\n' + debug
-        debugBox.classList.remove('hidden')
+        // 如需调试，改为 debugBox.style.display = 'block'
+        // debugBox.style.display = 'block'
         console.warn('[Recover Debug]', debug)
       } catch (_) { /* ignore */ }
     }
