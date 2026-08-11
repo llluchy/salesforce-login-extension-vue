@@ -252,7 +252,7 @@
     <!-- 步骤 1：输入恢复密钥 -->
     <div id="step1" class="hidden">
       <h1>输入恢复密钥</h1>
-      <p class="desc">邮箱验证成功，请输入注册时保存的 43 字符恢复密钥</p>
+      <p class="desc">邮箱验证成功，请输入注册时保存的恢复密钥</p>
       <div class="step-indicator">
         <div class="step-dot active">1</div>
         <div class="step-dot">2</div>
@@ -261,11 +261,11 @@
       <div class="form-group">
         <label>恢复密钥</label>
         <div class="key-input-group">
-          <input type="text" id="recoveryKey" placeholder="43位恢复密钥" autocomplete="off" />
+          <input type="text" id="recoveryKey" placeholder="输入或上传恢复密钥" autocomplete="off" />
           <button class="btn-upload" onclick="document.getElementById('keyFile').click()">上传文件</button>
           <input type="file" id="keyFile" accept=".json" style="display:none" onchange="handleKeyFileUpload(event)" />
         </div>
-        <div class="hint">密钥格式为 43 个字符（A-Za-z0-9-_），也可上传保存的密钥文件</div>
+        <div class="hint">可手动粘贴密钥内容，或上传注册时下载的密钥文件（.json）</div>
       </div>
       <button class="btn btn-primary" id="verifyKeyBtn" onclick="handleVerifyKey()">验证密钥</button>
       <div id="step1Message" class="message"></div>
