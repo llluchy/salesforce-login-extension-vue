@@ -662,6 +662,21 @@
       } catch (_) { /* ignore */ }
     }
 
+    // 将 Supabase 的错误码翻译为用户友好的提示
+    function getFriendlyErrorMessage(errorCode, errorDesc) {
+      // errorDesc 格式如 "Email+link+is+invalid+or+has+expired"，解码后显示
+      const desc = errorDesc ? decodeURIComponent(errorDesc.replace(/\+/g, ' ')) : ''
+
+      switch (errorCode) {
+        case 'otp_expired':
+          return '此恢复链接已失效。\n\n链接为一次性使用，每次点击后立即失效；未使用的链接也会在 1 小时后过期。\n\n请在插件中重新发起「忘记密码」请求，获取新的恢复链接。'
+        case 'access_denied':
+          return '此恢复链接已被使用或已过期。\n\n请在插件中重新发起「忘记密码」请求，获取新的恢复链接。'
+        default:
+          return `请求失败${desc ? ' — ' + desc : ''}。\n\n请在插件中重新发起「忘记密码」请求。`
+      }
+    }
+
     function getPasswordStrength(password) {
       if (!password) return ''
       if (password.length < 8) return 'weak'
@@ -698,10 +713,19 @@
       const accessToken = params.get('access_token')
       const refreshToken = params.get('refresh_token')
 
-      // 放宽判断：只要有 access_token 就尝试，不依赖 type
-      // Supabase magic link/invite/email confirm 跳转时 type 可能为 magiclink/email/signup 等，也可能缺失
+      // 检测 Supabase 返回的错误参数（如过期、无效等）
+      const errorCode = params.get('error_code')
+      const errorDesc = params.get('error_description')
+
+      if (errorDesc || errorCode) {
+        const friendlyError = getFriendlyErrorMessage(errorCode, errorDesc)
+        showErrorPageWithDetail(friendlyError)
+        return
+      }
+
+      // 只要有 access_token 就尝试
       if (!accessToken) {
-        showErrorPageWithDetail('链接参数不完整：未找到 access_token。请确认：\n1. 是否直接从邮件中的链接点击跳转过来（非手动复制/粘贴）；\n2. Supabase Dashboard → URL Configuration → Redirect URLs 中已添加您的 recover.html 完整域名；\n3. 请重新点击邮件中的链接，或在插件中重新发起「忘记密码」请求。')
+        showErrorPageWithDetail('链接参数不完整：未找到 access_token。请在插件中重新发起「忘记密码」请求，并直接点击邮件中的链接。')
         return
       }
 
