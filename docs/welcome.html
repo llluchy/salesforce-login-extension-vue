@@ -217,15 +217,29 @@
   <script>
     // 解析 URL 参数
     const params = new URLSearchParams(window.location.search)
-    const rk = params.get('rk')
+    const rkParam = params.get('rk')
 
-    if (rk) {
+    if (rkParam) {
+      // 解析密钥数据：新格式为 JSON { d, x, y }，旧格式为纯 d 字符串
+      let rkD, rkX, rkY
+      try {
+        const parsed = JSON.parse(rkParam)
+        rkD = parsed.d
+        rkX = parsed.x || ''
+        rkY = parsed.y || ''
+      } catch {
+        // 旧格式：纯 d 字符串
+        rkD = rkParam
+        rkX = ''
+        rkY = ''
+      }
+
       // 显示恢复密钥展示区，隐藏普通欢迎区
       document.getElementById('recoverySection').classList.remove('hidden')
       document.getElementById('welcomeSection').classList.add('hidden')
 
-      // 显示密钥
-      document.getElementById('recoveryKey').textContent = rk
+      // 显示密钥（只显示 d 部分，保持 43 字符易读）
+      document.getElementById('recoveryKey').textContent = rkD
 
       const confirmCheckbox = document.getElementById('confirmCheckbox')
       const confirmBtn = document.getElementById('confirmBtn')
@@ -235,10 +249,10 @@
         confirmBtn.disabled = !confirmCheckbox.checked
       })
 
-      // 复制按钮
+      // 复制按钮（复制 d 值，用户手动输入时只需要 d）
       document.getElementById('copyBtn').onclick = async () => {
         try {
-          await navigator.clipboard.writeText(rk)
+          await navigator.clipboard.writeText(rkD)
           alert('恢复密钥已复制到剪贴板')
         } catch {
           // 降级：选中文本供用户手动复制
@@ -250,12 +264,14 @@
         }
       }
 
-      // 下载按钮
+      // 下载按钮（保存完整密钥数据，含 x,y 确保恢复时正确导入）
       document.getElementById('downloadBtn').onclick = () => {
         const content = JSON.stringify({
           type: 'salesforce-quick-login-recovery-key',
-          version: 1,
-          key: rk,
+          version: 2,
+          key: rkD,
+          x: rkX,
+          y: rkY,
           createdAt: new Date().toISOString()
         }, null, 2)
         const blob = new Blob([content], { type: 'application/json' })

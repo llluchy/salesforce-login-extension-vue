@@ -379,8 +379,30 @@
     }
 
     // EC P-256 函数
-    async function importPrivateKeyFromD(d) {
-      const jwk = { kty: 'EC', crv: 'P-256', d: d }
+    async function importPrivateKeyFromD(input) {
+      let d, x, y
+
+      try {
+        const parsed = JSON.parse(input)
+        if (parsed.d) {
+          d = parsed.d
+          x = parsed.x
+          y = parsed.y
+        } else {
+          d = input
+        }
+      } catch {
+        d = input
+      }
+
+      const jwk = { kty: 'EC', crv: 'P-256', d }
+      if (x && y) {
+        jwk.x = x
+        jwk.y = y
+      }
+
+      console.log('[Recover] importPrivateKeyFromD JWK:', { kty: jwk.kty, crv: jwk.crv, hasX: !!jwk.x, hasY: !!jwk.y, dLen: jwk.d.length })
+
       return await subtle.importKey(
         'jwk', jwk,
         { name: 'ECDH', namedCurve: 'P-256' },
@@ -739,35 +761,61 @@
     // 步骤 1：验证恢复密钥
     // ============================================
     async function handleVerifyKey() {
-      const dValue = document.getElementById('recoveryKey').value.trim()
+      const inputEl = document.getElementById('recoveryKey')
+      // 优先用文件上传时解析的完整密钥（含 x,y），否则用输入框文本
+      const rawInput = inputEl.dataset.fullKey || inputEl.value.trim()
+      let keyInput = rawInput
       const btn = document.getElementById('verifyKeyBtn')
 
-      if (!dValue) {
+      if (!rawInput || rawInput.length < 10) {
         showMessage('step1Message', 'error', '请输入恢复密钥')
         return
+      }
+
+      // 若输入为纯 d 字符串（无 x,y），从 recovery_public_key 中提取 x,y 补全
+      // 公钥和私钥共享同一个 EC 点，x,y 一致，可组合成完整私钥 JWK
+      try {
+        JSON.parse(keyInput) // 已经含 x,y 的 JSON → 无需处理
+      } catch {
+        // 纯 d 字符串，尝试从 DB 中的 public key 补全 x,y
+        try {
+          const pubJwk = typeof secretData.recovery_public_key === 'string'
+            ? JSON.parse(secretData.recovery_public_key)
+            : secretData.recovery_public_key
+          if (pubJwk && pubJwk.x && pubJwk.y) {
+            keyInput = JSON.stringify({ d: rawInput, x: pubJwk.x, y: pubJwk.y })
+            console.log('[Recover] 从 recovery_public_key 补全了 x,y')
+          }
+        } catch (_) { /* 旧格式无 public_key，使用原始 d */ }
       }
 
       btn.disabled = true
       btn.innerHTML = '<span class="loading-spinner"></span> 验证中...'
 
       try {
-        // 导入私钥
-        const privateKey = await importPrivateKeyFromD(dValue)
+        console.log('[Recover] 开始导入私钥, 输入长度:', keyInput.length, '前10字符:', keyInput.substring(0, 10))
+        // 导入私钥（含 x,y 保证正确重建密钥）
+        const privateKey = await importPrivateKeyFromD(keyInput)
+        console.log('[Recover] 私钥导入成功，开始解密')
 
         // 解密旧密码
+        console.log('[Recover] recovery_password 长度:', (secretData.recovery_password || '').length)
         oldPassword = await decryptWithPrivateKey(secretData.recovery_password, privateKey)
 
         if (!oldPassword) {
-          throw new Error('解密失败：密钥无效')
+          throw new Error('解密结果为空')
         }
 
+        console.log('[Recover] 解密成功, 密码长度:', oldPassword.length)
         // 验证成功，进入步骤 2
         showMessage('step1Message', 'success', '恢复密钥验证成功！')
         setTimeout(() => {
           showStep(2)
         }, 800)
       } catch (e) {
-        showMessage('step1Message', 'error', '恢复密钥无效，请检查后重新输入')
+        console.error('[Recover] 验证失败:', e.name, e.message, e)
+        const detailMsg = '错误类型: ' + e.name + '\n错误信息: ' + e.message + '\n请确认恢复密钥与注册时保存的一致。若通过文件上传，请确保文件未被修改。'
+        showErrorPageWithDetail(detailMsg)
         btn.disabled = false
         btn.textContent = '验证密钥'
       }
@@ -783,7 +831,13 @@
         try {
           const data = JSON.parse(e.target.result)
           if (data.key) {
-            document.getElementById('recoveryKey').value = data.key
+            // v2 格式：有 x,y → 存完整 JSON 到隐藏字段供 importPrivateKeyFromD 使用
+            if (data.x && data.y) {
+              document.getElementById('recoveryKey').dataset.fullKey = JSON.stringify({ d: data.key, x: data.x, y: data.y })
+              document.getElementById('recoveryKey').value = data.key
+            } else {
+              document.getElementById('recoveryKey').value = data.key
+            }
           } else {
             alert('文件格式不正确，未找到 key 字段')
           }

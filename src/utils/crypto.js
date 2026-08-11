@@ -461,14 +461,38 @@ export async function exportPublicKeyJwk(publicKey) {
  */
 export async function exportPrivateKeyD(privateKey) {
   const jwk = await subtle.exportKey('jwk', privateKey)
-  return jwk.d
+  // 返回 { d, x, y }，导入时带上 x,y 确保浏览器正确重建密钥
+  return JSON.stringify({ d: jwk.d, x: jwk.x, y: jwk.y })
 }
 
 /**
- * 从 d 值导入私钥（恢复页面用）
+ * 从导出数据导入私钥（恢复页面用）
+ * 支持新格式 JSON { d, x, y } 和旧格式纯 d 字符串（兼容旧密钥）
  */
-export async function importPrivateKeyFromD(d) {
-  const jwk = { kty: 'EC', crv: 'P-256', d: d }
+export async function importPrivateKeyFromD(input) {
+  let d, x, y
+
+  try {
+    const parsed = JSON.parse(input)
+    if (parsed.d) {
+      d = parsed.d
+      x = parsed.x
+      y = parsed.y
+    } else {
+      // JSON 但不是我们的格式，当纯 d 处理
+      d = input
+    }
+  } catch {
+    // 纯字符串 d（旧格式兼容）
+    d = input
+  }
+
+  const jwk = { kty: 'EC', crv: 'P-256', d }
+  if (x && y) {
+    jwk.x = x
+    jwk.y = y
+  }
+
   return await subtle.importKey(
     'jwk', jwk,
     { name: 'ECDH', namedCurve: 'P-256' },
