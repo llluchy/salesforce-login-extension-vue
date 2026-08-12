@@ -165,6 +165,20 @@
       cursor: not-allowed;
     }
     .hidden { display: none !important; }
+    .debugPanel {
+      display:none;
+      margin-top:24px;
+      background:#0d1117;
+      border:1px solid #30363d;
+      border-radius:8px;
+      padding:16px;
+      text-align:left;
+      font-family:Consolas,monospace;
+      font-size:12px;
+      line-height:1.6;
+      max-height:400px;
+      overflow-y:auto;
+    }
   </style>
 </head>
 <body>
@@ -210,7 +224,7 @@
     </div>
 
     <!-- Debug 信息面板 -->
-    <div id="debugPanel" style="display:none;margin-top:24px;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:16px;text-align:left;font-family:Consolas,monospace;font-size:12px;line-height:1.6;max-height:400px;overflow-y:auto;">
+    <div id="debugPanel" class="debugPanel">
       <div style="color:#f0883e;font-weight:700;margin-bottom:8px;">DEBUG INFO</div>
       <div id="debugContent"></div>
     </div>
@@ -435,8 +449,6 @@
         }
       }
     } else {
-      // rkParam 为空 → 显示 debug 面板
-      document.getElementById('debugPanel').style.display = ''
       document.getElementById('debugContent').innerHTML = debugLogs.join('<br>')
     }
   })()
