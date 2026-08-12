@@ -33,7 +33,7 @@
     </div>
 
     <!-- 表单 -->
-    <form class="auth-form" @submit.prevent="handleSubmit">
+    <form class="auth-form" @submit.prevent="handleSubmit" @keydown="handleFormKeydown">
       <!-- 邮箱（仅在无 session 时显示） -->
       <div class="form-field" v-if="!hasSession">
         <label>邮箱</label>
@@ -43,6 +43,7 @@
           autocomplete="email"
           placeholder="you@example.com"
           :disabled="isLoading"
+          tabindex="1"
           required />
       </div>
 
@@ -55,6 +56,7 @@
           :autocomplete="isLoginMode ? 'current-password' : 'new-password'"
           placeholder="至少 8 位"
           :disabled="isLoading"
+          tabindex="2"
           minlength="8"
           required />
       </div>
@@ -68,6 +70,7 @@
           autocomplete="new-password"
           placeholder="再次输入密码"
           :disabled="isLoading"
+          tabindex="3"
           minlength="8"
           required />
       </div>
@@ -236,6 +239,28 @@ const handleSubmit = async () => {
     }
   } catch (e) {
     errorMessage.value = e.message || '操作失败'
+  }
+}
+
+// Tab 焦点陷阱：防止 Tab 键逃逸到浏览器地址栏
+const handleFormKeydown = (e) => {
+  if (e.key === 'Tab') {
+    const form = e.currentTarget
+    const focusable = form.querySelectorAll('input:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])')
+    if (focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      }
+    } else {
+      if (document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
   }
 }
 
