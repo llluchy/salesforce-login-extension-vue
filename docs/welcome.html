@@ -219,9 +219,33 @@
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
-    // 解析 URL 参数
+    // 解析 URL 参数（支持新旧两种格式）
     const params = new URLSearchParams(window.location.search)
-    const rkParam = params.get('rk')
+
+    let rkParam = null, saltParam = null, rpParam = null, rpkParam = null
+
+    // 格式 1（v2.3.1+）：单参数 d（base64url 编码的 JSON）
+    const dParam = params.get('d')
+    if (dParam) {
+      try {
+        // base64url → base64 → JSON
+        let b64 = dParam.replace(/-/g, '+').replace(/_/g, '/')
+        while (b64.length % 4) b64 += '='
+        const data = JSON.parse(atob(b64))
+        rkParam = data.rk || null
+        saltParam = data.salt || null
+        rpParam = data.rp || null
+        rpkParam = data.rpk || null
+      } catch (_) { /* 解码失败，回退到旧格式 */ }
+    }
+
+    // 格式 2（v2.3.0 旧格式兼容）：多参数 rk / salt / rp / rpk
+    if (!rkParam) {
+      rkParam = params.get('rk')
+      saltParam = params.get('salt')
+      rpParam = params.get('rp')
+      rpkParam = params.get('rpk')
+    }
 
     if (rkParam) {
       // 解析密钥数据
@@ -236,11 +260,6 @@
         rkX = ''
         rkY = ''
       }
-
-      // 解析其他数据（salt、加密密码、公钥）
-      const saltParam = params.get('salt')
-      const rpParam = params.get('rp')      // recovery_password（公钥加密后的密码）
-      const rpkParam = params.get('rpk')    // recovery_public_key
 
       let canShow = true
 

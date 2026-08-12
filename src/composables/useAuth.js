@@ -540,14 +540,17 @@ async function signUp({ email, password }) {
     const publicKeyJwk = await exportPublicKeyJwk(keyPair.publicKey)
     const privateKeyD = await exportPrivateKeyD(keyPair.privateKey)
 
-    // 将所有数据通过 URL 参数传给 welcome.html（邮件确认后用户才真正创建，那时才能写 DB）
-    const welcomeParams = new URLSearchParams({
+    // 将所有数据打包为单个 base64url 参数传给 welcome.html
+    // （多参数在 Supabase redirect 链路中可能被截断，单参数更可靠）
+    const payload = JSON.stringify({
       rk: privateKeyD,                          // 私钥 {d, x, y}
       salt: saltB64,                             // PBKDF2 salt
       rp: encryptedPassword,                     // 公钥加密后的密码
       rpk: publicKeyJwk                          // 公钥 JWK JSON
     })
-    const welcomeUrl = `${WELCOME_PAGE_URL}?${welcomeParams.toString()}`
+    // base64url 编码（避免 +/= 字符在 URL 中被误处理）
+    const payloadB64 = btoa(payload).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+    const welcomeUrl = `${WELCOME_PAGE_URL}?d=${payloadB64}`
 
     log('注册', { email })
     const { data, error } = await supabase.auth.signUp({
