@@ -552,20 +552,29 @@ async function signUp({ email, password }) {
 
     if (error) throw error
 
-    // 无论是否有 session，都插入 user_secrets（INSERT 策略为 to public，匿名可插入）
-    if (data.user?.id) {
+    // 获取 user id：signUp 在邮件确认模式下可能返回 null，回退到 getUser
+    let userId = data.user?.id
+    if (!userId) {
+      const { data: userData } = await supabase.auth.getUser()
+      userId = userData?.user?.id
+    }
+
+    if (userId) {
       const { error: insertErr } = await supabase
         .from('user_secrets')
-        .insert({
-          user_id: data.user.id,
+        .upsert({
+          user_id: userId,
           salt: saltB64,
           recovery_public_key: publicKeyJwk,
-          recovery_password: encryptedPassword
-        })
+          recovery_password: encryptedPassword,
+          recovery_key_shown: false
+        }, { onConflict: 'user_id' })
 
       if (insertErr) {
-        log('user_secrets 插入失败（可能已存在）', insertErr)
+        logError('user_secrets upsert 失败', insertErr)
+        throw new Error('用户数据初始化失败，请重试')
       }
+      log('user_secrets 已创建', { userId })
     }
 
     if (data.session && data.user) {
@@ -1007,7 +1016,8 @@ async function migrateRecoveryKeyIfNeeded(userId, password) {
       .from('user_secrets')
       .update({
         recovery_password: encryptedPassword,
-        recovery_public_key: publicKeyJwk
+        recovery_public_key: publicKeyJwk,
+        recovery_key_shown: false
       })
       .eq('user_id', userId)
 

@@ -79,6 +79,7 @@ create table public.user_secrets (
   device_code text null,
   recovery_password text null,
   recovery_public_key jsonb null,
+  recovery_key_shown boolean null default false,
   constraint user_secrets_pkey primary key (user_id),
   constraint user_secrets_user_id_fkey foreign KEY (user_id) references auth.users (id) on delete CASCADE
 ) TABLESPACE pg_default;

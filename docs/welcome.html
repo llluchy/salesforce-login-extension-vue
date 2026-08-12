@@ -210,13 +210,21 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script>
+    // Supabase 初始化
+    const supabaseClient = window.supabase.createClient(
+      'https://ulcqqmhykqxdpcoveidf.supabase.co',
+      'sb_publishable_b0Xs0scWJ24ZfSye2YV7JA_T-EPwjIF',
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+
     // 解析 URL 参数
     const params = new URLSearchParams(window.location.search)
     const rkParam = params.get('rk')
 
     if (rkParam) {
-      // 解析密钥数据：新格式为 JSON { d, x, y }，旧格式为纯 d 字符串
+      // 解析密钥数据
       let rkD, rkX, rkY
       try {
         const parsed = JSON.parse(rkParam)
@@ -224,54 +232,108 @@
         rkX = parsed.x || ''
         rkY = parsed.y || ''
       } catch {
-        // 旧格式：纯 d 字符串
         rkD = rkParam
         rkX = ''
         rkY = ''
       }
 
-      // 显示恢复密钥展示区，隐藏普通欢迎区
-      document.getElementById('recoverySection').classList.remove('hidden')
-      document.getElementById('welcomeSection').classList.add('hidden')
+      let canShow = true
 
-      const confirmCheckbox = document.getElementById('confirmCheckbox')
-      const confirmBtn = document.getElementById('confirmBtn')
+      // 尝试从 URL hash 恢复 session 并标记已查看
+      const hash = window.location.hash.substring(1)
+      if (hash) {
+        try {
+          const hashParams = new URLSearchParams(hash)
+          const accessToken = hashParams.get('access_token')
+          const refreshToken = hashParams.get('refresh_token')
 
-      // 勾选后启用确认按钮
-      confirmCheckbox.addEventListener('change', () => {
-        confirmBtn.disabled = !confirmCheckbox.checked
-      })
+          if (accessToken) {
+            const { error: sessionErr } = await supabaseClient.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken || ''
+            })
 
-      // 下载按钮（保存完整密钥数据，含 x,y 确保恢复时正确导入）
-      document.getElementById('downloadBtn').onclick = () => {
-        const content = JSON.stringify({
-          type: 'salesforce-quick-login-recovery-key',
-          version: 2,
-          key: rkD,
-          x: rkX,
-          y: rkY,
-          createdAt: new Date().toISOString()
-        }, null, 2)
-        const blob = new Blob([content], { type: 'application/json' })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = 'salesforce-recovery-key.json'
-        a.click()
-        URL.revokeObjectURL(url)
+            if (!sessionErr) {
+              const { data: { user } } = await supabaseClient.auth.getUser()
+
+              if (user) {
+                // 检查是否已查看过
+                const { data: existing } = await supabaseClient
+                  .from('user_secrets')
+                  .select('recovery_key_shown')
+                  .eq('user_id', user.id)
+                  .maybeSingle()
+
+                if (existing?.recovery_key_shown) {
+                  canShow = false
+                } else {
+                  // 标记为已查看
+                  await supabaseClient
+                    .from('user_secrets')
+                    .update({ recovery_key_shown: true })
+                    .eq('user_id', user.id)
+                    .throwOnError()
+                }
+
+                // 清除 hash，防止浏览器历史泄漏 access_token
+                history.replaceState(null, '', window.location.pathname + '?rk=consumed')
+              }
+            }
+          }
+        } catch (_) { /* session 验证失败，仍然展示（兼容旧链接） */ }
       }
 
-      // 确认按钮
-      confirmBtn.onclick = () => {
-        if (!confirmCheckbox.checked) {
-          alert('请先勾选「我已安全保存了恢复密钥」')
-          return
+      if (!canShow) {
+        // 密钥已被查看过
+        document.getElementById('recoverySection').style.display = 'none'
+        document.getElementById('welcomeSection').classList.remove('hidden')
+        document.getElementById('welcomeSection').innerHTML = `
+          <div style="text-align:center;padding:20px 0;">
+            <div style="font-size:48px;margin-bottom:16px;opacity:0.6;">🔒</div>
+            <h1>链接已失效</h1>
+            <p class="desc">此恢复密钥已被查看过，链接仅一次有效。<br>如果您未保存密钥文件，请注册新账号重新设置。</p>
+          </div>
+        `
+      } else {
+        // 显示恢复密钥展示区
+        document.getElementById('recoverySection').classList.remove('hidden')
+        document.getElementById('welcomeSection').classList.add('hidden')
+
+        const confirmCheckbox = document.getElementById('confirmCheckbox')
+        const confirmBtn = document.getElementById('confirmBtn')
+
+        confirmCheckbox.addEventListener('change', () => {
+          confirmBtn.disabled = !confirmCheckbox.checked
+        })
+
+        // 下载按钮
+        document.getElementById('downloadBtn').onclick = () => {
+          const content = JSON.stringify({
+            type: 'salesforce-quick-login-recovery-key',
+            version: 2,
+            key: rkD,
+            x: rkX,
+            y: rkY,
+            createdAt: new Date().toISOString()
+          }, null, 2)
+          const blob = new Blob([content], { type: 'application/json' })
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = 'salesforce-recovery-key.json'
+          a.click()
+          URL.revokeObjectURL(url)
         }
-        // 清除 URL 中的密钥参数（防止浏览器历史残留）
-        history.replaceState(null, '', window.location.pathname)
-        // 显示成功提示
-        document.getElementById('recoverySection').classList.add('hidden')
-        document.getElementById('successSection').classList.remove('hidden')
+
+        // 确认按钮
+        confirmBtn.onclick = () => {
+          if (!confirmCheckbox.checked) {
+            alert('请先勾选「我已下载并安全保存了密钥文件」')
+            return
+          }
+          document.getElementById('recoverySection').classList.add('hidden')
+          document.getElementById('successSection').classList.remove('hidden')
+        }
       }
     }
   </script>
