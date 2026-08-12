@@ -225,6 +225,8 @@
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
+    ;(async () => {
+
     // ========== Debug 收集器 ==========
     const debugLogs = []
     function debug(label, value) {
@@ -437,6 +439,7 @@
       document.getElementById('debugPanel').classList.remove('hidden')
       document.getElementById('debugContent').innerHTML = debugLogs.join('<br>')
     }
+  })()
   </script>
 </body>
 </html>
