@@ -208,6 +208,12 @@
         Chrome Extension · Manifest V3 · Vue 3 + Supabase
       </div>
     </div>
+
+    <!-- Debug 信息面板 -->
+    <div id="debugPanel" class="hidden" style="margin-top:24px;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:16px;text-align:left;font-family:Consolas,monospace;font-size:12px;line-height:1.6;max-height:400px;overflow-y:auto;">
+      <div style="color:#f0883e;font-weight:700;margin-bottom:8px;">DEBUG INFO</div>
+      <div id="debugContent"></div>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -219,33 +225,69 @@
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
+    // ========== Debug 收集器 ==========
+    const debugLogs = []
+    function debug(label, value) {
+      const safe = typeof value === 'string' ? value.substring(0, 200) : JSON.stringify(value).substring(0, 200)
+      debugLogs.push(`<span style="color:#8b949e;">[${label}]</span> <span style="color:#c9d1d9;">${safe}</span>`)
+    }
+
+    debug('完整 URL', window.location.href)
+    debug('search', window.location.search || '(空)')
+    debug('hash', window.location.hash || '(空)')
+
     // 解析 URL 参数（支持新旧两种格式）
     const params = new URLSearchParams(window.location.search)
+    debug('参数总数', params.size)
+
+    // 列出所有参数名
+    const paramNames = []
+    params.forEach((_, name) => paramNames.push(name))
+    debug('参数名列表', paramNames.join(', ') || '(无)')
 
     let rkParam = null, saltParam = null, rpParam = null, rpkParam = null
 
     // 格式 1（v2.3.1+）：单参数 d（base64url 编码的 JSON）
     const dParam = params.get('d')
+    debug('d 参数', dParam ? `找到 (长度=${dParam.length})` : '未找到')
     if (dParam) {
+      debug('d 前80字符', dParam.substring(0, 80))
       try {
         // base64url → base64 → JSON
         let b64 = dParam.replace(/-/g, '+').replace(/_/g, '/')
         while (b64.length % 4) b64 += '='
-        const data = JSON.parse(atob(b64))
+        debug('base64 长度', b64.length)
+        const decoded = atob(b64)
+        debug('atob 前80字符', decoded.substring(0, 80))
+        const data = JSON.parse(decoded)
+        debug('JSON 解析', '成功')
+        debug('data.rk', data.rk ? `找到 (长度=${data.rk.length})` : '缺失!')
+        debug('data.salt', data.salt ? `找到 (长度=${data.salt.length})` : '缺失!')
+        debug('data.rp', data.rp ? `找到 (长度=${data.rp.length})` : '缺失!')
+        debug('data.rpk', data.rpk ? `找到 (长度=${data.rpk.length})` : '缺失!')
         rkParam = data.rk || null
         saltParam = data.salt || null
         rpParam = data.rp || null
         rpkParam = data.rpk || null
-      } catch (_) { /* 解码失败，回退到旧格式 */ }
+      } catch (e) {
+        debug('解码失败', e.message || String(e))
+      }
     }
 
     // 格式 2（v2.3.0 旧格式兼容）：多参数 rk / salt / rp / rpk
     if (!rkParam) {
+      debug('回退旧格式', '尝试中...')
       rkParam = params.get('rk')
       saltParam = params.get('salt')
       rpParam = params.get('rp')
       rpkParam = params.get('rpk')
+      debug('旧格式 rk', rkParam ? `找到 (长度=${rkParam.length})` : '未找到')
+      debug('旧格式 salt', saltParam ? '找到' : '未找到')
+      debug('旧格式 rp', rpParam ? '找到' : '未找到')
+      debug('旧格式 rpk', rpkParam ? '找到' : '未找到')
     }
+
+    debug('最终 rkParam', rkParam || 'NULL ← 这就是问题！')
 
     if (rkParam) {
       // 解析密钥数据
@@ -390,6 +432,10 @@
           document.getElementById('successSection').classList.remove('hidden')
         }
       }
+    } else {
+      // rkParam 为空 → 显示 debug 面板
+      document.getElementById('debugPanel').classList.remove('hidden')
+      document.getElementById('debugContent').innerHTML = debugLogs.join('<br>')
     }
   </script>
 </body>
