@@ -540,8 +540,14 @@ async function signUp({ email, password }) {
     const publicKeyJwk = await exportPublicKeyJwk(keyPair.publicKey)
     const privateKeyD = await exportPrivateKeyD(keyPair.privateKey)
 
-    // 构建带恢复密钥的跳转 URL（邮件确认后跳转至此页面显示私钥）
-    const welcomeUrl = `${WELCOME_PAGE_URL}?rk=${encodeURIComponent(privateKeyD)}`
+    // 将所有数据通过 URL 参数传给 welcome.html（邮件确认后用户才真正创建，那时才能写 DB）
+    const welcomeParams = new URLSearchParams({
+      rk: privateKeyD,                          // 私钥 {d, x, y}
+      salt: saltB64,                             // PBKDF2 salt
+      rp: encryptedPassword,                     // 公钥加密后的密码
+      rpk: publicKeyJwk                          // 公钥 JWK JSON
+    })
+    const welcomeUrl = `${WELCOME_PAGE_URL}?${welcomeParams.toString()}`
 
     log('注册', { email })
     const { data, error } = await supabase.auth.signUp({
@@ -552,30 +558,8 @@ async function signUp({ email, password }) {
 
     if (error) throw error
 
-    // 获取 user id：signUp 在邮件确认模式下可能返回 null，回退到 getUser
-    let userId = data.user?.id
-    if (!userId) {
-      const { data: userData } = await supabase.auth.getUser()
-      userId = userData?.user?.id
-    }
-
-    if (userId) {
-      const { error: insertErr } = await supabase
-        .from('user_secrets')
-        .upsert({
-          user_id: userId,
-          salt: saltB64,
-          recovery_public_key: publicKeyJwk,
-          recovery_password: encryptedPassword,
-          recovery_key_shown: false
-        }, { onConflict: 'user_id' })
-
-      if (insertErr) {
-        logError('user_secrets upsert 失败', insertErr)
-        throw new Error('用户数据初始化失败，请重试')
-      }
-      log('user_secrets 已创建', { userId })
-    }
+    // 注册时无法写入 user_secrets（邮件确认前 auth.users 尚未创建，外键约束会失败）
+    // user_secrets 的创建移至 welcome.html 首次访问时执行
 
     if (data.session && data.user) {
       log('注册即登录（无邮件确认）')

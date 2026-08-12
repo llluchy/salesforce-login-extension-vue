@@ -237,11 +237,16 @@
         rkY = ''
       }
 
+      // 解析其他数据（salt、加密密码、公钥）
+      const saltParam = params.get('salt')
+      const rpParam = params.get('rp')      // recovery_password（公钥加密后的密码）
+      const rpkParam = params.get('rpk')    // recovery_public_key
+
       let canShow = true
 
-      // 尝试从 URL hash 恢复 session 并标记已查看
+      // 尝试从 URL hash 恢复 session，首次访问时创建 user_secrets
       const hash = window.location.hash.substring(1)
-      if (hash) {
+      if (hash && saltParam && rpParam && rpkParam) {
         try {
           const hashParams = new URLSearchParams(hash)
           const accessToken = hashParams.get('access_token')
@@ -267,20 +272,51 @@
                 if (existing?.recovery_key_shown) {
                   canShow = false
                 } else {
-                  // 标记为已查看
+                  // 首次访问：创建 user_secrets 并标记已查看
                   await supabaseClient
                     .from('user_secrets')
-                    .update({ recovery_key_shown: true })
-                    .eq('user_id', user.id)
-                    .throwOnError()
+                    .upsert({
+                      user_id: user.id,
+                      salt: saltParam,
+                      recovery_password: rpParam,
+                      recovery_public_key: rpkParam,
+                      recovery_key_shown: true
+                    }, { onConflict: 'user_id' })
                 }
-
-                // 清除 hash，防止浏览器历史泄漏 access_token
-                history.replaceState(null, '', window.location.pathname + '?rk=consumed')
               }
             }
           }
-        } catch (_) { /* session 验证失败，仍然展示（兼容旧链接） */ }
+        } catch (_) { /* 失败不阻塞，仍展示页面 */ }
+      } else if (hash && !saltParam) {
+        // 旧链接（无 salt/rp/rpk），user_secrets 已在注册时创建，检查 recovery_key_shown
+        try {
+          const hashParams = new URLSearchParams(hash)
+          const accessToken = hashParams.get('access_token')
+          if (accessToken) {
+            await supabaseClient.auth.setSession({
+              access_token: accessToken,
+              refresh_token: hashParams.get('refresh_token') || ''
+            })
+            const { data: { user } } = await supabaseClient.auth.getUser()
+            if (user) {
+              const { data: existing } = await supabaseClient
+                .from('user_secrets')
+                .select('recovery_key_shown')
+                .eq('user_id', user.id)
+                .maybeSingle()
+
+              if (existing?.recovery_key_shown) {
+                canShow = false
+              } else {
+                // 旧格式链接未标记，补标记
+                await supabaseClient
+                  .from('user_secrets')
+                  .update({ recovery_key_shown: true })
+                  .eq('user_id', user.id)
+              }
+            }
+          }
+        } catch (_) { /* 兼容 */ }
       }
 
       if (!canShow) {
