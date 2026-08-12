@@ -249,25 +249,25 @@
       </div>
     </div>
 
-    <!-- 步骤 1：输入恢复密钥 -->
+    <!-- 步骤 1：上传恢复密钥 -->
     <div id="step1" class="hidden">
-      <h1>输入恢复密钥</h1>
-      <p class="desc">邮箱验证成功，请上传注册时保存的密钥文件（.json），或手动粘贴下方字符</p>
+      <h1>上传恢复密钥</h1>
+      <p class="desc">邮箱验证成功，请上传注册时下载的密钥文件（.json）</p>
       <div class="step-indicator">
         <div class="step-dot active">1</div>
         <div class="step-dot">2</div>
         <div class="step-dot">3</div>
       </div>
       <div class="form-group">
-        <label>恢复密钥</label>
+        <label>密钥文件</label>
         <div class="key-input-group">
-          <input type="text" id="recoveryKey" placeholder="输入或上传恢复密钥" autocomplete="off" />
-          <button class="btn-upload" onclick="document.getElementById('keyFile').click()">上传文件</button>
+          <input type="text" id="recoveryKey" placeholder="选择文件后自动填入" autocomplete="off" readonly style="background:#f5f5f5;cursor:not-allowed;" />
+          <button class="btn-upload" onclick="document.getElementById('keyFile').click()">选择文件</button>
           <input type="file" id="keyFile" accept=".json" style="display:none" onchange="handleKeyFileUpload(event)" />
         </div>
-        <div class="hint">可手动粘贴密钥内容，或上传注册时下载的密钥文件（.json）</div>
+        <div class="hint">请上传注册时下载的 salesforce-recovery-key.json 文件</div>
       </div>
-      <button class="btn btn-primary" id="verifyKeyBtn" onclick="handleVerifyKey()">验证密钥</button>
+      <button class="btn btn-primary" id="verifyKeyBtn" onclick="handleVerifyKey()" disabled>验证密钥</button>
       <div id="step1Message" class="message"></div>
     </div>
 
@@ -787,31 +787,13 @@
     // ============================================
     async function handleVerifyKey() {
       const inputEl = document.getElementById('recoveryKey')
-      // 优先用文件上传时解析的完整密钥（含 x,y），否则用输入框文本
-      const rawInput = inputEl.dataset.fullKey || inputEl.value.trim()
-      let keyInput = rawInput
+      // 从文件上传中获取完整密钥（含 x,y）
+      const keyInput = inputEl.dataset.fullKey
       const btn = document.getElementById('verifyKeyBtn')
 
-      if (!rawInput || rawInput.length < 10) {
-        showMessage('step1Message', 'error', '请输入恢复密钥')
+      if (!keyInput || keyInput.length < 10) {
+        showMessage('step1Message', 'error', '请先选择密钥文件')
         return
-      }
-
-      // 若输入为纯 d 字符串（无 x,y），从 recovery_public_key 中提取 x,y 补全
-      // 公钥和私钥共享同一个 EC 点，x,y 一致，可组合成完整私钥 JWK
-      try {
-        JSON.parse(keyInput) // 已经含 x,y 的 JSON → 无需处理
-      } catch {
-        // 纯 d 字符串，尝试从 DB 中的 public key 补全 x,y
-        try {
-          const pubJwk = typeof secretData.recovery_public_key === 'string'
-            ? JSON.parse(secretData.recovery_public_key)
-            : secretData.recovery_public_key
-          if (pubJwk && pubJwk.x && pubJwk.y) {
-            keyInput = JSON.stringify({ d: rawInput, x: pubJwk.x, y: pubJwk.y })
-            console.log('[Recover] 从 recovery_public_key 补全了 x,y')
-          }
-        } catch (_) { /* 旧格式无 public_key，使用原始 d */ }
       }
 
       btn.disabled = true
@@ -819,11 +801,9 @@
 
       try {
         console.log('[Recover] 开始导入私钥, 输入长度:', keyInput.length, '前10字符:', keyInput.substring(0, 10))
-        // 导入私钥（含 x,y 保证正确重建密钥）
         const privateKey = await importPrivateKeyFromD(keyInput)
         console.log('[Recover] 私钥导入成功，开始解密')
 
-        // 解密旧密码
         console.log('[Recover] recovery_password 长度:', (secretData.recovery_password || '').length)
         oldPassword = await decryptWithPrivateKey(secretData.recovery_password, privateKey)
 
@@ -832,15 +812,13 @@
         }
 
         console.log('[Recover] 解密成功, 密码长度:', oldPassword.length)
-        // 验证成功，进入步骤 2
         showMessage('step1Message', 'success', '恢复密钥验证成功！')
         setTimeout(() => {
           showStep(2)
         }, 800)
       } catch (e) {
         console.error('[Recover] 验证失败:', e.name, e.message, e)
-        const detailMsg = '错误类型: ' + e.name + '\n错误信息: ' + e.message + '\n请确认恢复密钥与注册时保存的一致。若通过文件上传，请确保文件未被修改。'
-        showErrorPageWithDetail(detailMsg)
+        showErrorPageWithDetail('密钥验证失败，请确认上传的是注册时下载的原始密钥文件')
         btn.disabled = false
         btn.textContent = '验证密钥'
       }
@@ -855,25 +833,22 @@
       reader.onload = function(e) {
         try {
           const data = JSON.parse(e.target.result)
-          if (data.key) {
-            // v2 格式：有 x,y → 存完整 JSON 到隐藏字段供 importPrivateKeyFromD 使用
-            if (data.x && data.y) {
-              document.getElementById('recoveryKey').dataset.fullKey = JSON.stringify({ d: data.key, x: data.x, y: data.y })
-              document.getElementById('recoveryKey').value = data.key
-            } else {
-              document.getElementById('recoveryKey').value = data.key
-            }
-          } else {
-            alert('文件格式不正确，未找到 key 字段')
+          if (!data.key) {
+            showMessage('step1Message', 'error', '文件格式不正确，未找到密钥数据')
+            return
           }
+          // 存完整数据供 importPrivateKeyFromD 使用
+          if (data.x && data.y) {
+            document.getElementById('recoveryKey').dataset.fullKey = JSON.stringify({ d: data.key, x: data.x, y: data.y })
+          } else {
+            // v1 旧格式：只有 key，无 x,y
+            document.getElementById('recoveryKey').dataset.fullKey = data.key
+          }
+          document.getElementById('recoveryKey').value = data.key
+          document.getElementById('verifyKeyBtn').disabled = false
+          showMessage('step1Message', 'success', '密钥文件加载成功')
         } catch {
-          // 可能是纯文本文件
-          const text = e.target.result
-          if (text && text.length >= 40 && text.length <= 50) {
-            document.getElementById('recoveryKey').value = text.trim()
-          } else {
-            alert('文件格式不正确，请上传注册时保存的密钥文件')
-          }
+          showMessage('step1Message', 'error', '文件格式不正确，请上传 salesforce-recovery-key.json')
         }
       }
       reader.readAsText(file)

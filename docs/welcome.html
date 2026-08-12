@@ -177,20 +177,16 @@
       <div class="warning">
         ⚠️ 这是您账号的<strong>恢复密钥</strong>，仅显示一次！<br>
         忘记密码时需要用此密钥找回密码。<br>
-        <strong>推荐点击「下载密钥文件」保存完整密钥</strong>；也可手抄下方的字符作为备用。
-      </div>
-      <div class="key-display">
-        <code id="recoveryKey"></code>
+        请点击下方按钮下载密钥文件，妥善保存到安全位置。
       </div>
       <div class="actions">
-        <button id="downloadBtn" style="font-weight:700;">下载密钥文件（推荐）</button>
-        <button id="copyBtn">复制密钥</button>
+        <button id="downloadBtn" class="btn-primary" style="font-weight:700;font-size:16px;padding:14px 40px;">下载密钥文件</button>
       </div>
       <label class="confirm-label">
         <input type="checkbox" id="confirmCheckbox" />
-        我已安全保存了恢复密钥
+        我已下载并安全保存了密钥文件
       </label>
-      <button id="confirmBtn" class="btn-primary" disabled>确认</button>
+      <button id="confirmBtn" class="btn-primary" disabled style="width:100%">确认</button>
     </div>
 
     <!-- 保存成功提示 -->
@@ -238,9 +234,6 @@
       document.getElementById('recoverySection').classList.remove('hidden')
       document.getElementById('welcomeSection').classList.add('hidden')
 
-      // 显示密钥（只显示 d 部分，保持 43 字符易读）
-      document.getElementById('recoveryKey').textContent = rkD
-
       const confirmCheckbox = document.getElementById('confirmCheckbox')
       const confirmBtn = document.getElementById('confirmBtn')
 
@@ -248,21 +241,6 @@
       confirmCheckbox.addEventListener('change', () => {
         confirmBtn.disabled = !confirmCheckbox.checked
       })
-
-      // 复制按钮（复制 d 值，用户手动输入时只需要 d）
-      document.getElementById('copyBtn').onclick = async () => {
-        try {
-          await navigator.clipboard.writeText(rkD)
-          alert('恢复密钥已复制到剪贴板')
-        } catch {
-          // 降级：选中文本供用户手动复制
-          const range = document.createRange()
-          range.selectNode(document.getElementById('recoveryKey'))
-          window.getSelection().removeAllRanges()
-          window.getSelection().addRange(range)
-          alert('复制失败，请手动 Ctrl+C 复制选中的密钥')
-        }
-      }
 
       // 下载按钮（保存完整密钥数据，含 x,y 确保恢复时正确导入）
       document.getElementById('downloadBtn').onclick = () => {
