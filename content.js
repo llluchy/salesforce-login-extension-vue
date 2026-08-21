@@ -197,28 +197,9 @@ function cropImage(dataUrl, x, y, width, height) {
   const CT = '[CT]';
 
   /**
-   * 注入 page-world.js 到页面主世界
-   * v4 架构：不再向页面注入 cbor.js / webauthn-authenticator.js / passkey-ui.js
-   * 注：cbor.js 和 webauthn-authenticator.js 仍由 Side Panel 的 index.html 加载使用
-   */
-  function injectPageWorldScript() {
-    try {
-      const mainScript = document.createElement('script');
-      mainScript.src = chrome.runtime.getURL('page-world.js');
-      mainScript.onload = function() {
-        this.remove();
-      };
-      mainScript.onerror = function(e) {
-        console.error(`${CT} page-world.js 加载失败!`, e);
-      };
-      (document.head || document.documentElement).appendChild(mainScript);
-    } catch (e) {
-      console.error(`${CT} injectPageWorldScript 异常:`, e.message);
-    }
-  }
-
-  /**
    * 向 page-world.js 回传响应
+   * page-world.js 由 manifest.json 声明 world: "MAIN" 直接注入主世界
+   * 不再使用 fetch + 内联 script 的方式，避免被 Salesforce 严格 CSP（禁止 unsafe-inline）阻止
    */
   function respondToPageWorld(requestId, data) {
     window.postMessage({
@@ -254,6 +235,7 @@ function cropImage(dataUrl, x, y, width, height) {
 
     // ====== sf:passkeyGet / sf:passkeyCreate：发送给 Side Panel ======
     // 如果 Side Panel 没开，2秒后显示气泡并轮询，Panel 打开后自动重发
+    // 如果 chrome.runtime.sendMessage 报错（如 bfcache 关闭消息端口），立即 fallback 到系统 Passkey
     if (action === 'sf:passkeyGet' || action === 'sf:passkeyCreate') {
       const passkeyAction = action;
       const passkeyData = event.data.data;
@@ -261,25 +243,48 @@ function cropImage(dataUrl, x, y, width, height) {
       let sent = false;
       let pingInterval = null;
 
+      function doFallback(reason) {
+        if (stopped || sent) return;
+        stopped = true;
+        sent = true;
+        if (pingInterval) {
+          clearInterval(pingInterval);
+          pingInterval = null;
+        }
+        hidePasskeyBubble();
+        pendingPasskeyRequests.delete(requestId);
+        console.warn(`${CT} [${passkeyAction}] 立即 fallback 系统 Passkey: ${reason || ''}`);
+        respondToPageWorld(requestId, { fallback: true });
+      }
+
       function trySend() {
         if (stopped || sent) return;
-        chrome.runtime.sendMessage({ action: 'bg:ping' }).then(response => {
-          if (stopped || sent) return;
-          if (response && response.open) {
-            // Side Panel 已打开，发送 Passkey 请求
-            sent = true;
-            chrome.runtime.sendMessage({
-              action: passkeyAction,
-              requestId: requestId,
-              data: passkeyData
-            }).catch(() => {});
-            if (pingInterval) {
-              clearInterval(pingInterval);
-              pingInterval = null;
+        chrome.runtime.sendMessage({ action: 'bg:ping' })
+          .then(response => {
+            if (stopped || sent) return;
+            if (response && response.open) {
+              // Side Panel 已打开，发送 Passkey 请求
+              chrome.runtime.sendMessage({
+                action: passkeyAction,
+                requestId: requestId,
+                data: passkeyData
+              }).catch(err => {
+                // sendMessage 失败：bfcache port closed / Side Panel 关闭 等
+                doFallback(`send ${passkeyAction} 失败: ${err?.message || String(err)}`);
+              });
+              sent = true;
+              if (pingInterval) {
+                clearInterval(pingInterval);
+                pingInterval = null;
+              }
             }
-          }
-          // response === undefined: Side Panel 未打开，继续等待轮询
-        }).catch(() => {});
+            // response === undefined: Side Panel 未打开，继续等待轮询
+          })
+          .catch(err => {
+            // ping 失败：bfcache 将扩展 port 移入 back/forward cache 导致 message channel closed
+            // 这种情况下继续轮询也没用，立即让页面走系统 Passkey
+            doFallback(`bg:ping 失败: ${err?.message || String(err)}`);
+          });
       }
 
       // 立即尝试发送（Side Panel 可能已打开）
@@ -493,6 +498,6 @@ function cropImage(dataUrl, x, y, width, height) {
     }
   }
 
-  injectPageWorldScript();
-  console.log(`${CT} ========== 桥接模块初始化完成 (v4) ==========`);
+  // page-world.js 由 manifest.json 声明 world: "MAIN" 注入主世界（避免 CSP 阻止内联脚本）
+  console.log(`${CT} ========== 桥接模块初始化完成 (v4.1) ==========`);
 })();

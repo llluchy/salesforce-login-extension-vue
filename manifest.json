@@ -26,9 +26,23 @@
         "https://*.my.site.com/*",
         "https://*.cloudforce.com/*"
       ],
+      "js": ["page-world.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://*.salesforce.com/*",
+        "https://*.force.com/*",
+        "https://*.my.salesforce.com/*",
+        "https://*.my.site.com/*",
+        "https://*.cloudforce.com/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_start",
-      "all_frames": true
+      "all_frames": true,
+      "world": "ISOLATED"
     }
   ],
   "web_accessible_resources": [
