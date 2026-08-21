@@ -135,6 +135,14 @@
         </div>
       </div>
     </div>
+
+    <!-- Passkey 保存/验证加载遮罩 -->
+    <div v-if="passkeySaving" class="pk-saving-overlay">
+      <div class="pk-saving-box">
+        <div class="pk-spinner"></div>
+        <span class="pk-saving-text">{{ passkeySavingStage }}</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -147,7 +155,7 @@ import { useStorage } from './composables/useStorage'
 import { useAuth } from './composables/useAuth'
 import { migrateLocalToSupabase } from './utils/migration'
 import { useLogin } from './composables/useLogin'
-import { initPasskeyBridge, destroyPasskeyBridge, passkeyRequest } from './composables/usePasskeyBridge'
+import { initPasskeyBridge, destroyPasskeyBridge, passkeyRequest, passkeyError, passkeySaving, passkeySavingStage } from './composables/usePasskeyBridge'
 import { useTotp } from './composables/useTotp'
 import syncLog from './utils/syncLogger'
 import Toolbar from './components/Toolbar.vue'
@@ -267,6 +275,21 @@ watch(passkeyRequest, (req) => {
     _request: req
   }
 }, { deep: false })
+
+// 监听 passkey 保存错误
+watch(passkeyError, (err) => {
+  if (err) {
+    showToast(err, 'error')
+    passkeyError.value = null
+  }
+})
+
+// 监听 passkey 保存完成（从 true → false 且无错误 = 成功）
+watch(passkeySaving, (saving, prev) => {
+  if (prev && !saving && !passkeyError.value) {
+    showToast('Passkey 绑定成功')
+  }
+})
 
 const displayGroups = computed(() => {
   const ungroupedCount = environments.value.filter(e => !e.groupId || e.groupId === 'ungrouped').length
@@ -927,6 +950,41 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Passkey 保存加载遮罩 */
+.pk-saving-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pk-saving-box {
+  background: #fff;
+  border-radius: 10px;
+  padding: 24px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.pk-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #e0e0e0;
+  border-top-color: #1a73e8;
+  border-radius: 50%;
+  animation: pk-spin 0.8s linear infinite;
+}
+@keyframes pk-spin {
+  to { transform: rotate(360deg); }
+}
+.pk-saving-text {
+  font-size: 14px;
+  color: #333;
 }
 .pk-dialog {
   background: #fff;

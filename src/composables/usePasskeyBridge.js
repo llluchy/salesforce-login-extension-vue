@@ -18,6 +18,9 @@ let _listener = null
 // App.vue watch 此值来显示/隐藏 Passkey 选择对话框
 // ============================================
 export const passkeyRequest = ref(null) // { type, resolve, reject, data, environments }
+export const passkeyError = ref(null)  // 保存失败时的错误信息，App.vue watch 显示警告
+export const passkeySaving = ref(false) // 保存中加载态
+export const passkeySavingStage = ref('') // 加载阶段文字：保存中 / 验证中
 
 export function initPasskeyBridge() {
   if (_listener) return
@@ -173,7 +176,36 @@ export function initPasskeyBridge() {
         envId: selectedEnv.id, signCount: 0, createdAt: Date.now()
       }
 
-      await savePasskeyCredential(passkey)
+      passkeySaving.value = true
+      passkeySavingStage.value = '保存中…'
+
+      const saveResult = await savePasskeyCredential(passkey)
+      if (!saveResult?.success) {
+        passkeySaving.value = false
+        passkeySavingStage.value = ''
+        passkeyError.value = 'Passkey 保存失败（' + (saveResult?.error || '未知错误') + '），请重试'
+        passkeyRequest.value = null
+        respondToContent(msg, { fallback: true })
+        return
+      }
+
+      // 验证：重新加载数据确认 passkey 已持久化
+      passkeySavingStage.value = '验证中…'
+      const verifyEnvs = await loadEnvironments()
+      const verifyEnv = verifyEnvs.find(e => e.id === selectedEnv.id)
+      const saved = (verifyEnv?.passkeys || []).some(pk => pk.credentialId === passkey.credentialId)
+      if (!saved) {
+        passkeySaving.value = false
+        passkeySavingStage.value = ''
+        passkeyError.value = 'Passkey 保存验证失败，数据可能未持久化，请重新尝试绑定'
+        passkeyRequest.value = null
+        respondToContent(msg, { fallback: true })
+        return
+      }
+
+      passkeySaving.value = false
+      passkeySavingStage.value = ''
+
       const serialized = serializeCredential(result.credential)
       respondToContent(msg, { success: true, credential: serialized })
 

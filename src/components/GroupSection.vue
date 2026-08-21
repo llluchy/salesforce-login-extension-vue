@@ -95,6 +95,15 @@ const initSortable = () => {
     onEnd: (evt) => {
       document.body.style.cursor = ''
 
+      // 恢复 Sortable 的跨分组 DOM 移动，避免 Vue 响应式更新时出现重复卡片
+      if (evt.from !== evt.to) {
+        if (evt.oldIndex < evt.from.children.length) {
+          evt.from.insertBefore(evt.item, evt.from.children[evt.oldIndex])
+        } else {
+          evt.from.appendChild(evt.item)
+        }
+      }
+
       const fromGroupEl = evt.from.closest('.group-section')
       const toGroupEl = evt.to.closest('.group-section')
 
