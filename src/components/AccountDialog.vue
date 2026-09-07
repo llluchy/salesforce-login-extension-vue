@@ -141,6 +141,40 @@
           </div>
         </div>
       </div>
+
+      <!-- 退出登录确认（替代浏览器 confirm） -->
+      <Transition name="modal">
+        <div
+          v-if="signOutConfirmVisible"
+          class="confirm-overlay"
+          @click.self="closeSignOutConfirm"
+        >
+          <div class="confirm-modal">
+            <div class="modal-header">
+              <h2>确认退出</h2>
+              <button class="modal-close" type="button" @click="closeSignOutConfirm" :disabled="loading">×</button>
+            </div>
+            <div class="confirm-body">
+              <div class="confirm-warning">
+                <span class="confirm-icon">⚠️</span>
+                <p>确定要退出登录吗？</p>
+                <p class="confirm-hint">本地缓存将被清除，下次打开需重新登录。</p>
+              </div>
+              <div class="auth-error" v-if="errorMessage && signOutConfirmVisible">
+                <svg viewBox="0 0 20 20" width="12" height="12" fill="currentColor"><path d="M10 1a9 9 0 100 18 9 9 0 000-18zm-1 13a1 1 0 112 0 1 1 0 01-2 0zm1-3a1 1 0 01-1-1V7a1 1 0 112 0v3a1 1 0 01-1 1z"/></svg>
+                <span>{{ errorMessage }}</span>
+              </div>
+            </div>
+            <div class="confirm-footer">
+              <button class="btn btn-outline" type="button" @click="closeSignOutConfirm" :disabled="loading">取消</button>
+              <button class="btn btn-danger-solid" type="button" @click="confirmSignOut" :disabled="loading">
+                <span v-if="loading" class="spinner-mini"></span>
+                <span>{{ loading ? '退出中...' : '退出登录' }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
     </div>
   </Transition>
 </template>
@@ -162,6 +196,7 @@ const mode = ref('menu')
 const loading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
+const signOutConfirmVisible = ref(false)
 
 // 修改密码表单
 const oldPassword = ref('')
@@ -180,19 +215,35 @@ watch(() => props.visible, (val) => {
     newPassword.value = ''
     confirmNewPassword.value = ''
     reencryptPassword.value = ''
+    signOutConfirmVisible.value = false
+  } else {
+    signOutConfirmVisible.value = false
   }
 })
 
 const handleClose = () => {
   if (loading.value) return
+  signOutConfirmVisible.value = false
   emit('close')
 }
 
-const handleSignOut = async () => {
-  if (!confirm('确定要退出登录吗？本地缓存将被清除。')) return
+const handleSignOut = () => {
+  if (loading.value) return
+  errorMessage.value = ''
+  signOutConfirmVisible.value = true
+}
+
+const closeSignOutConfirm = () => {
+  if (loading.value) return
+  signOutConfirmVisible.value = false
+}
+
+const confirmSignOut = async () => {
   loading.value = true
+  errorMessage.value = ''
   try {
     await signOut()
+    signOutConfirmVisible.value = false
     emit('signed-out')
   } catch (e) {
     errorMessage.value = e.message || '登出失败'
@@ -605,6 +656,77 @@ const handleReencrypt = async () => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.confirm-modal {
+  background: white;
+  border-radius: 8px;
+  width: 100%;
+  max-width: 320px;
+  box-shadow: 0 8px 24px rgba(25, 118, 210, 0.25);
+  overflow: hidden;
+}
+
+.confirm-body {
+  padding: 20px 16px 12px;
+  background: #f5f9ff;
+}
+
+.confirm-warning {
+  text-align: center;
+}
+
+.confirm-icon {
+  font-size: 36px;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.confirm-warning p {
+  margin: 0 0 8px;
+  color: #333;
+  font-size: 14px;
+}
+
+.confirm-hint {
+  font-size: 12px !important;
+  color: #1976d2 !important;
+  line-height: 1.5;
+}
+
+.confirm-body .auth-error {
+  margin-top: 12px;
+}
+
+.confirm-footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  background: #f5f9ff;
+  border-top: 1px solid #bbdefb;
+}
+
+.btn-danger-solid {
+  background: #dc3545;
+  color: white;
+  border-color: #dc3545;
+}
+
+.btn-danger-solid:hover:not(:disabled) {
+  background: #c82333;
+  border-color: #c82333;
 }
 
 .modal-enter-active, .modal-leave-active {

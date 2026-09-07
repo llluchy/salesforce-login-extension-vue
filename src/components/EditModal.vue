@@ -101,12 +101,49 @@
           <button class="btn btn-primary" @click="handleSave">保存</button>
         </div>
       </div>
+
+      <!-- 快速创建分组（嵌套弹窗，替代浏览器 prompt） -->
+      <Transition name="modal">
+        <div
+          v-if="quickGroupVisible"
+          class="nested-modal-overlay"
+          @click.self="closeQuickAddGroup"
+        >
+          <div class="nested-modal-content">
+            <div class="modal-header">
+              <h2>创建分组</h2>
+              <button class="modal-close" type="button" @click="closeQuickAddGroup">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l10 10M13 3L3 13"/></svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <div class="form-group">
+                <label>分组名称 *</label>
+                <input
+                  ref="quickGroupInputRef"
+                  type="text"
+                  v-model="quickGroupName"
+                  placeholder="输入分组名称"
+                  maxlength="50"
+                  @keydown.enter.prevent="confirmQuickAddGroup"
+                  @keydown.esc.prevent="closeQuickAddGroup"
+                />
+              </div>
+              <p v-if="quickGroupError" class="field-error">{{ quickGroupError }}</p>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-secondary" type="button" @click="closeQuickAddGroup">取消</button>
+              <button class="btn btn-primary" type="button" @click="confirmQuickAddGroup">保存</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
     </div>
   </Transition>
 </template>
 
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, nextTick } from 'vue'
 import { useTotp } from '../composables/useTotp'
 
 const props = defineProps({
@@ -129,8 +166,13 @@ const emit = defineEmits(['close', 'save', 'add-group'])
 const { parseQRCode, scanQR } = useTotp()
 
 const fileInputRef = ref(null)
+const quickGroupInputRef = ref(null)
 
 const showPassword = ref(false)
+const quickGroupVisible = ref(false)
+const quickGroupName = ref('')
+const quickGroupError = ref('')
+const pendingSelectGroupName = ref(null)
 
 const form = ref({
   alias: '',
@@ -166,14 +208,36 @@ const handleTypeChange = () => {
   }
 }
 
-const openQuickAddGroup = async () => {
-  const groupName = prompt('请输入新分组名称:')
-  if (groupName && groupName.trim()) {
-    const newGroup = await emit('add-group', groupName.trim())
-    if (newGroup) {
-      form.value.groupId = newGroup.id
-    }
+const openQuickAddGroup = () => {
+  quickGroupName.value = ''
+  quickGroupError.value = ''
+  quickGroupVisible.value = true
+  nextTick(() => {
+    quickGroupInputRef.value?.focus()
+  })
+}
+
+const closeQuickAddGroup = () => {
+  quickGroupVisible.value = false
+  quickGroupName.value = ''
+  quickGroupError.value = ''
+}
+
+const confirmQuickAddGroup = () => {
+  const name = quickGroupName.value.trim()
+  if (!name) {
+    quickGroupError.value = '请输入分组名称'
+    quickGroupInputRef.value?.focus()
+    return
   }
+  if (props.groups.some(g => g.name === name)) {
+    quickGroupError.value = '已存在同名分组'
+    quickGroupInputRef.value?.focus()
+    return
+  }
+  pendingSelectGroupName.value = name
+  emit('add-group', name)
+  closeQuickAddGroup()
 }
 
 const triggerFileInput = () => {
@@ -278,6 +342,8 @@ const handleSave = () => {
 
 watch(() => props.visible, (val) => {
   if (val) {
+    closeQuickAddGroup()
+    pendingSelectGroupName.value = null
     if (props.env) {
       form.value = {
         alias: props.env.alias || '',
@@ -301,8 +367,21 @@ watch(() => props.visible, (val) => {
         passkeys: []
       }
     }
+  } else {
+    closeQuickAddGroup()
+    pendingSelectGroupName.value = null
   }
 })
+
+// 父组件创建分组后更新 groups，自动选中新建项
+watch(() => props.groups, (groups) => {
+  if (!pendingSelectGroupName.value) return
+  const created = groups.find(g => g.name === pendingSelectGroupName.value)
+  if (created) {
+    form.value.groupId = created.id
+    pendingSelectGroupName.value = null
+  }
+}, { deep: true })
 </script>
 
 <style scoped>
@@ -427,6 +506,34 @@ watch(() => props.visible, (val) => {
 
 .group-select-wrapper select {
   flex: 1;
+}
+
+.nested-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+
+.nested-modal-content {
+  background-color: white;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 300px;
+  box-shadow: 0 8px 24px rgba(25, 118, 210, 0.25);
+  overflow: hidden;
+}
+
+.field-error {
+  margin: -4px 0 0;
+  font-size: 12px;
+  color: #c62828;
 }
 
 .form-divider {

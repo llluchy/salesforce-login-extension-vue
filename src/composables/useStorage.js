@@ -113,9 +113,15 @@ export function useStorage() {
    * 3. 写入 chrome.storage.local 缓存
    * 4. 返回明文 env 数组
    * 失败时 fallback 到 local 缓存（离线场景）
+   * @param {{ detailed?: boolean }} [opts] detailed=true 时返回 { data, source, error }
+   *   source: 'remote' | 'cache' | 'empty'
    */
-  const loadEnvironments = async () => {
+  const loadEnvironments = async (opts = {}) => {
     log('loadEnvironments')
+    const detailed = !!opts.detailed
+    const wrap = (data, source, error = null) =>
+      detailed ? { data, source, error, count: data.length } : data
+
     const supabase = getSupabase()
     const key = getCryptoKey()
 
@@ -124,14 +130,14 @@ export function useStorage() {
       const cached = await cacheGet(STORAGE_KEY)
       const result = Array.isArray(cached) ? cached : []
       await syncEnvsToSession(result)
-      return result
+      return wrap(result, result.length ? 'cache' : 'empty', 'Supabase 未初始化')
     }
     if (!key) {
       logWarn('cryptoKey 未派生（未解锁），使用本地缓存')
       const cached = await cacheGet(STORAGE_KEY)
       const result = Array.isArray(cached) ? cached : []
       await syncEnvsToSession(result)
-      return result
+      return wrap(result, result.length ? 'cache' : 'empty', '加密密钥未派生')
     }
 
     try {
@@ -163,14 +169,14 @@ export function useStorage() {
 
       await cacheSet(STORAGE_KEY, envs)
       await syncEnvsToSession(envs)
-      return envs
+      return wrap(envs, 'remote')
     } catch (e) {
       logError('从 Supabase 读取失败，fallback 到本地缓存', e)
       console.error('[Storage] loadEnvironments 异常', e)
       const cached = await cacheGet(STORAGE_KEY)
       const result = Array.isArray(cached) ? cached : []
       await syncEnvsToSession(result)
-      return result
+      return wrap(result, result.length ? 'cache' : 'empty', e.message || String(e))
     }
   }
 
@@ -269,20 +275,29 @@ export function useStorage() {
   // 分组列表
   // ----------------------------------------
 
-  const loadGroups = async () => {
+  /**
+   * @param {{ detailed?: boolean }} [opts] detailed=true 时返回 { data, source, error }
+   */
+  const loadGroups = async (opts = {}) => {
     log('loadGroups')
+    const detailed = !!opts.detailed
+    const wrap = (data, source, error = null) =>
+      detailed ? { data, source, error, count: data.length } : data
+
     const supabase = getSupabase()
     const key = getCryptoKey()
 
     if (!supabase) {
       logWarn('Supabase 未初始化，使用本地缓存')
       const cached = await cacheGet(STORAGE_KEY_GROUPS)
-      return Array.isArray(cached) ? cached : []
+      const result = Array.isArray(cached) ? cached : []
+      return wrap(result, result.length ? 'cache' : 'empty', 'Supabase 未初始化')
     }
     if (!key) {
       logWarn('cryptoKey 未派生（未解锁），使用本地缓存')
       const cached = await cacheGet(STORAGE_KEY_GROUPS)
-      return Array.isArray(cached) ? cached : []
+      const result = Array.isArray(cached) ? cached : []
+      return wrap(result, result.length ? 'cache' : 'empty', '加密密钥未派生')
     }
 
     try {
@@ -295,13 +310,14 @@ export function useStorage() {
       const groups = (data || []).map(decryptGroup)
       log('读取成功', { count: groups.length, ids: groups.map(g => g.id) })
       await cacheSet(STORAGE_KEY_GROUPS, groups)
-      return groups
+      return wrap(groups, 'remote')
     } catch (e) {
       logError('从 Supabase 读取分组失败，fallback 到本地缓存', e)
       console.error('[Storage] loadGroups 失败详情:', e)
       const cached = await cacheGet(STORAGE_KEY_GROUPS)
       console.log('[Storage] loadGroups fallback 到缓存，缓存数据:', cached ? cached.length : 0, '条')
-      return Array.isArray(cached) ? cached : []
+      const result = Array.isArray(cached) ? cached : []
+      return wrap(result, result.length ? 'cache' : 'empty', e.message || String(e))
     }
   }
 

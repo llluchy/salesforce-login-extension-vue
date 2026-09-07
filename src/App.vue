@@ -144,6 +144,15 @@
       </div>
     </div>
   </div>
+
+  <!-- 启动 / 登录后数据同步遮罩（覆盖 AuthScreen 与主界面） -->
+  <div v-if="bootOverlay.visible" class="boot-overlay">
+    <div class="boot-box">
+      <div class="pk-spinner"></div>
+      <span class="boot-message">{{ bootOverlay.message }}</span>
+      <span v-if="bootOverlay.detail" class="boot-detail">{{ bootOverlay.detail }}</span>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -195,6 +204,21 @@ const manualBindEnv = ref(null)
 
 const toastMessage = ref('')
 const toastType = ref('success')
+
+// 启动 / 登录后数据同步遮罩（默认开启，避免自动跳过登录时闪一下空界面）
+const bootOverlay = ref({
+  visible: true,
+  message: '正在启动...',
+  detail: ''
+})
+
+function showBoot(message, detail = '') {
+  bootOverlay.value = { visible: true, message, detail }
+}
+
+function hideBoot() {
+  bootOverlay.value = { visible: false, message: '', detail: '' }
+}
 
 // ========== Passkey 选择对话框（v4） ==========
 const pkAliasInput = ref(null)
@@ -774,21 +798,62 @@ const closeToast = () => {
 
 // ========== 登录态与数据加载 ==========
 
+const SOURCE_LABEL = {
+  remote: '云端数据库',
+  cache: '本地缓存',
+  empty: '无数据'
+}
+
 const loadData = async () => {
   syncLog.group('App.loadData 加载数据')
   try {
-    environments.value = await loadEnvironments()
-    groups.value = await loadGroups()
-    
+    showBoot('正在连接数据库...', '准备拉取环境与分组')
+
+    showBoot('正在获取环境列表...', '从云端数据库读取并解密')
+    const envResult = await loadEnvironments({ detailed: true })
+    environments.value = envResult.data
+    const envSourceLabel = SOURCE_LABEL[envResult.source] || envResult.source
+    showBoot(
+      `环境已加载（${envResult.count} 个）`,
+      envResult.error
+        ? `来源：${envSourceLabel}（云端失败：${envResult.error}）`
+        : `来源：${envSourceLabel}`
+    )
+
+    showBoot('正在获取分组列表...', '从云端数据库读取')
+    const groupResult = await loadGroups({ detailed: true })
+    groups.value = groupResult.data
+    const groupSourceLabel = SOURCE_LABEL[groupResult.source] || groupResult.source
+    showBoot(
+      `分组已加载（${groupResult.count} 个）`,
+      groupResult.error
+        ? `来源：${groupSourceLabel}（云端失败：${groupResult.error}）`
+        : `来源：${groupSourceLabel}`
+    )
+
     syncLog.info('加载完成', {
       envs: environments.value.length,
-      groups: groups.value.length
+      groups: groups.value.length,
+      envSource: envResult.source,
+      groupSource: groupResult.source,
+      envError: envResult.error,
+      groupError: groupResult.error
     })
+
+    // 若走了缓存回退，给用户明确提示，便于排查网络/缓存问题
+    if (envResult.source === 'cache' || groupResult.source === 'cache') {
+      const reason = envResult.error || groupResult.error || '未知原因'
+      showToast(`云端同步失败，已使用本地缓存：${reason}`, 'error')
+    } else if (envResult.source === 'empty' && envResult.error) {
+      showToast(`未能从云端获取数据：${envResult.error}`, 'error')
+    }
+
     nextTick(() => {
       initGroupSortable()
     })
   } catch (e) {
     syncLog.error('加载数据失败', e)
+    showBoot('加载失败', e.message || String(e))
     showToast('加载数据失败：' + (e.message || ''), 'error')
   } finally {
     syncLog.groupEnd()
@@ -797,17 +862,22 @@ const loadData = async () => {
 
 // 防止 onAuthed 被重复触发（emit + watch 可能同时触发）
 let _onAuthedRunning = false
+// onAuthed 是否已完成至少一次数据加载（避免 onMounted 与 watch 竞态导致遮罩卡住）
+let _dataLoadDone = false
 
 const onAuthed = async () => {
   if (_onAuthedRunning) {
     return
   }
   _onAuthedRunning = true
+  _dataLoadDone = false
   syncLog.info('App.onAuthed 登录成功，开始加载数据')
   accountDialogVisible.value = false
+  showBoot('登录成功', '正在同步云端数据...')
 
   // 首次登录时尝试迁移本地旧数据到 Supabase（云端有数据则自动跳过）
   try {
+    showBoot('正在检查本地数据迁移...', '首次使用时会将旧数据上传到云端')
     const result = await migrateLocalToSupabase()
     if (result?.success) {
       const m = result.migrated
@@ -831,6 +901,8 @@ const onAuthed = async () => {
     syncLog.error('加载数据失败', e)
     console.error('[App] onAuthed loadData 异常', e)
   } finally {
+    _dataLoadDone = true
+    hideBoot()
     _onAuthedRunning = false
   }
 }
@@ -841,6 +913,7 @@ let _authTriggered = false
 watch(isAuthed, (newVal, oldVal) => {
   if (newVal === true && oldVal === false && !_authTriggered) {
     _authTriggered = true
+    showBoot('正在同步数据...', '登录状态已确认')
     onAuthed().catch(err => {
       console.error('[App] watch onAuthed 异常', err)
     }).finally(() => {
@@ -855,6 +928,8 @@ const onSignedOut = () => {
   accountDialogVisible.value = false
   environments.value = []
   groups.value = []
+  _dataLoadDone = false
+  hideBoot()
   if (groupSortable) {
     groupSortable.destroy()
     groupSortable = null
@@ -875,6 +950,7 @@ const handleShareAccepted = async () => {
 
 onMounted(async () => {
   syncLog.group('App.onMounted 应用启动')
+  showBoot('正在恢复登录状态...', '检查会话与本地密钥')
 
   // 输出当前扩展运行环境概览
   try {
@@ -908,15 +984,23 @@ onMounted(async () => {
       unlockStatus
     })
 
-    // 若 getSession 已恢复 session 且今日已解锁过 → 直接进入主页
-    if (currentUser.value && !unlockStatus.needPassword) {
-      // 但 isAuthed 还是 false（密钥未派生），数据需要密码才能解密
-      // 这种情况显示 AuthScreen 但提示已登录
+    if (isAuthed.value) {
+      // 已自动恢复登录：遮罩交给 onAuthed（watch）关闭
+      // 若 watch 尚未跑完，仅更新文案；若已完成则不再重新打开遮罩
+      if (!_dataLoadDone) {
+        showBoot('登录已恢复', '正在从数据库同步数据...')
+      }
+    } else if (currentUser.value && !unlockStatus.needPassword) {
+      // 有 session 但密钥未恢复，仍需输入密码
       syncLog.info('今日已解锁过密码，等待用户输入密码派生密钥')
+      hideBoot()
+    } else {
+      // 需要登录/解锁：关闭遮罩，显示 AuthScreen
+      hideBoot()
     }
-    // 否则 AuthScreen 自动显示
   } catch (e) {
     syncLog.error('会话检查失败', e)
+    hideBoot()
   }
 
   syncLog.groupEnd()
@@ -939,6 +1023,41 @@ onBeforeUnmount(() => {
 
 .env-list {
   padding: 10px;
+}
+
+/* 启动 / 数据同步遮罩 */
+.boot-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(238, 245, 252, 0.92);
+  z-index: 20000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.boot-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 28px 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 8px 28px rgba(13, 71, 161, 0.12);
+  min-width: 220px;
+  max-width: 320px;
+  text-align: center;
+}
+.boot-message {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0d47a1;
+}
+.boot-detail {
+  font-size: 12px;
+  color: #607d8b;
+  line-height: 1.4;
+  word-break: break-all;
 }
 
 /* ========== Passkey 选择对话框样式 ========== */
