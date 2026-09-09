@@ -128,7 +128,11 @@
         </div>
 
         <div class="pk-footer" v-if="!pkDialog.showCreateForm">
-          <button class="pk-btn pk-btn-link" @click="pkDialog.showCreateForm = true; pkDialog.newAlias = ''">创建新环境</button>
+          <button
+            v-if="pkDialog.type !== 'get'"
+            class="pk-btn pk-btn-link"
+            @click="pkDialog.showCreateForm = true; pkDialog.newAlias = ''"
+          >创建新环境</button>
           <button class="pk-btn pk-btn-cancel" @click="cancelPasskeyDialog">
             取消/使用其他验证方式
           </button>
