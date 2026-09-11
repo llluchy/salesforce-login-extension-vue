@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOQL Creator - 对象黑名单设置</title>
+    <link rel="stylesheet" href="../sidepanel/sidepanel.css">
+    <style>
+        .settings-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .settings-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .settings-section h3 {
+            margin: 0 0 15px 0;
+            color: #333;
+            border-bottom: 2px solid #0070d2;
+            padding-bottom: 8px;
+        }
+        
+        .blacklist-description {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .blacklist-description .icon {
+            color: #0070d2;
+            margin-right: 8px;
+        }
+        
+        .object-list-container {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+        }
+        
+        .object-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 15px;
+            border-bottom: 1px solid #f0f0f0;
+            transition: background-color 0.2s;
+        }
+        
+        .object-item:last-child {
+            border-bottom: none;
+        }
+        
+        .object-item:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .object-checkbox {
+            margin-right: 12px;
+            transform: scale(1.2);
+        }
+        
+        .object-info {
+            flex: 1;
+        }
+        
+        .object-name {
+            font-weight: 500;
+            color: #333;
+            margin-bottom: 2px;
+        }
+        
+        .object-label {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .object-type {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-left: 8px;
+        }
+        
+        .object-type.standard {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        
+        .object-type.custom {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+        
+        .object-type.system {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        
+        .search-container {
+            margin-bottom: 15px;
+        }
+        
+        .search-input {
+            width: 100%;
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .search-input:focus {
+            outline: none;
+            border-color: #0070d2;
+            box-shadow: 0 0 0 2px rgba(0, 112, 210, 0.2);
+        }
+        
+        .filter-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-btn {
+            padding: 6px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        
+        .filter-btn:hover {
+            background: #f8f9fa;
+        }
+        
+        .filter-btn.active {
+            background: #0070d2;
+            color: white;
+            border-color: #0070d2;
+        }
+        
+        .stats-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .settings-actions {
+            text-align: center;
+            margin-top: 30px;
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+        
+        .empty-state .icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+        
+        .loading-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+        
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #0070d2;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* 默认打开方式设置样式 */
+        .open-mode-simple {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .mode-radio {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            padding: 8px 12px;
+            border: 1px solid #e1e5e9;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: white;
+            text-align: center;
+            justify-content: center;
+        }
+        
+        .mode-radio:hover {
+            border-color: #0070d2;
+            background: #f8f9ff;
+        }
+        
+        .mode-radio input[type="radio"] {
+            margin-right: 8px;
+            transform: scale(1.1);
+        }
+        
+        .mode-radio input[type="radio"]:checked + .radio-label {
+            color: #0070d2;
+            font-weight: 600;
+        }
+        
+        .mode-radio:has(input[type="radio"]:checked) {
+            border-color: #0070d2;
+            background: #f8f9ff;
+            box-shadow: 0 1px 3px rgba(0, 112, 210, 0.1);
+        }
+        
+        .radio-label {
+            font-size: 13px;
+            font-weight: 500;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="settings-container">
+        <header class="header">
+            <div class="header-content">
+                <h1>对象白名单设置</h1>
+                <button id="backBtn" class="btn btn-secondary">返回</button>
+            </div>
+        </header>
+
+        <!-- 默认打开方式设置 -->
+        <div class="settings-section">
+            <h3>默认打开方式</h3>
+            <div class="blacklist-description">
+                <span class="icon">ℹ️</span>
+                <strong>说明：</strong>设置插件的默认打开方式。切换后插件会立刻重启以应用新的启动方式。
+            </div>
+            
+            <div class="open-mode-simple">
+                <label class="mode-radio">
+                    <input type="radio" name="defaultOpenMode" value="sidepanel" checked>
+                    <span class="radio-label">侧边栏</span>
+                </label>
+                
+                <label class="mode-radio">
+                    <input type="radio" name="defaultOpenMode" value="tab">
+                    <span class="radio-label">标签页</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- 白名单说明 -->
+        <div class="settings-section">
+            <h3>对象白名单配置</h3>
+            <div class="blacklist-description">
+                <span class="icon">ℹ️</span>
+                <strong>说明：</strong>勾选想要选择的标准对象<br>
+            </div>
+            
+            <!-- 搜索和筛选 -->
+            <div class="search-container">
+                <input type="text" id="objectSearch" class="search-input" placeholder="搜索对象名称或标签...">
+            </div>
+            
+            <div class="filter-controls">
+                <button class="filter-btn active" data-type="all">全部</button>
+                <button class="filter-btn" data-type="standard">标准对象</button>
+                <button class="filter-btn" data-type="custom">自定义对象</button>
+                <button class="filter-btn" data-type="system">系统对象</button>
+            </div>
+            
+            <!-- 统计信息 -->
+            <div class="stats-info">
+                <span id="totalCount">总计: 0 个对象</span>
+                <span id="whitelistCount">白名单: 0 个对象</span>
+                <span id="visibleCount">可见: 0 个对象</span>
+            </div>
+            
+            <!-- 对象列表 -->
+            <div class="object-list-container" id="objectList">
+                <div class="loading-state">
+                    <div class="loading-spinner"></div>
+                    正在加载对象列表...
+                </div>
+            </div>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="settings-actions">
+            <div class="btn-group">
+                <button id="selectAllBtn" class="btn btn-secondary">全选</button>
+                <button id="deselectAllBtn" class="btn btn-secondary">全不选</button>
+                <button id="resetSettingsBtn" class="btn btn-secondary">重置为默认</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../../scripts/config/constants.js"></script>
+    <script src="../../scripts/config/UserConfig.js"></script>
+    <script src="settings.js"></script>
+</body>
+</html>

@@ -16,7 +16,13 @@ export default defineConfig({
     }
   },
   build: {
-    emptyOutDir: true
+    emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        sidepanel: resolve(__dirname, 'index.html'),
+        'tool-window': resolve(__dirname, 'tool-window.html')
+      }
+    }
   },
   server: {
     port: 5173,

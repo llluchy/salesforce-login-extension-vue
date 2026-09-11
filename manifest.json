@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Salesforce Quick Login",
-  "version": "2.4.0",
+  "version": "2.5.2",
   "description": "One-click Salesforce login with Passkey authentication, TOTP 2FA, encrypted cloud sync and environment sharing.",
   "permissions": [
     "storage",
@@ -9,7 +9,8 @@
     "tabs",
     "activeTab",
     "clipboardWrite",
-    "scripting"
+    "scripting",
+    "cookies"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -47,13 +48,18 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["page-world.js", "icons/icon48.png"],
+      "resources": [
+        "page-world.js",
+        "icons/icon48.png",
+        "tool-window.html"
+      ],
       "matches": [
         "https://*.salesforce.com/*",
         "https://*.force.com/*",
         "https://*.my.salesforce.com/*",
         "https://*.my.site.com/*",
-        "https://*.cloudforce.com/*"
+        "https://*.cloudforce.com/*",
+        "<all_urls>"
       ]
     }
   ],

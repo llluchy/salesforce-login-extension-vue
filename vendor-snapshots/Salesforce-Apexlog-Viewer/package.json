@@ -1,0 +1,11 @@
+{
+  "name": "salesforce-log-extension",
+  "version": "1.0.0",
+  "description": "Salesforce Apex Log Viewer Extension",
+  "scripts": {
+    "package": "node package-extension.js"
+  },
+  "dependencies": {
+    "sharp": "^0.34.5"
+  }
+}

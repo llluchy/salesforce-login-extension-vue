@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Salesforce Apex Log Viewer</title>
+  <link rel="stylesheet" href="window.css">
+</head>
+<body>
+  <div id="app">
+    <header class="header">
+      <div class="activity-timer" id="activityTimer">
+        <span class="timer-label">不活跃:</span>
+        <span class="timer-value" id="activityTimerValue">300</span>
+        <span class="timer-unit">s</span>
+      </div>
+      <h1>Salesforce Apex Log Viewer</h1>
+      <div class="header-right">
+          <button id="themeToggle" class="btn btn-icon" title="切换主题">
+            <svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            <svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path>
+            </svg>
+          </button>
+          <button class="user-info-btn" id="userInfoBtn" title="设置">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            <span id="userName">-</span>
+          </button>
+          <div class="env-switcher">
+            <select id="envSelector" class="env-select">
+              <option value="">选择环境</option>
+            </select>
+            <button id="refreshBtn" class="btn btn-icon" title="刷新">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0118.8-4.3M22 12.5a10 10 0 01-18.8 4.2"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+    </header>
+
+    <div class="main-content">
+      <div class="welcome-view" id="welcomeView">
+        <div class="welcome-content">
+          <svg class="welcome-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M9 12l2 2 4-4"></path>
+          </svg>
+          <h2>欢迎使用</h2>
+          <p>选择并连接 Salesforce 环境以开始查看 Apex Log</p>
+          <p class="hint">提示：在 Salesforce 页面上打开窗口可以自动识别当前环境</p>
+        </div>
+      </div>
+
+      <div class="main-view" id="mainView" style="display:none">
+        <div class="activity-bar" id="activityBar">
+          <button id="activityLogBtn" class="activity-btn active" title="日志列表">
+            <svg class="activity-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="8" y1="13" x2="16" y2="13"></line>
+              <line x1="8" y1="17" x2="16" y2="17"></line>
+              <line x1="8" y1="9" x2="10" y2="9"></line>
+            </svg>
+          </button>
+          <button id="activitySearchBtn" class="activity-btn" title="搜索">
+            <svg class="activity-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </button>
+        </div>
+
+        <div class="sidebar">
+          <div class="view-container">
+            <!-- Log View -->
+            <div class="view active" id="logView">
+              <div class="toolbar">
+                <div class="toolbar-top">
+                  <button id="markAllReadBtn" class="btn btn-secondary btn-small">全部已读</button>
+                  <div class="logs-count" id="logsCount">0</div>
+                </div>
+                
+                <div class="filter-panel collapsed" id="filterPanel">
+                  <div class="filter-content-wrapper">
+                    <div class="filter-section">
+                      <div class="filter-header" data-filter-group="app">
+                        <div class="filter-label">应用类型：</div>
+                      </div>
+                      <div class="filter-content" id="filterButtons">
+                        <button class="filter-btn active" data-filter="">全部</button>
+                        <button class="filter-btn" data-filter="Api">API</button>
+                        <button class="filter-btn" data-filter="Browser">Browser</button>
+                        <button class="filter-btn" data-filter="System">System</button>
+                      </div>
+                    </div>
+                    <div class="filter-section">
+                      <div class="filter-header" data-filter-group="status">
+                        <div class="filter-label">状态：</div>
+                      </div>
+                      <div class="filter-content" id="statusFilterButtons">
+                        <button class="filter-btn active" data-status="">全部</button>
+                        <button class="filter-btn" data-status="success">成功</button>
+                        <button class="filter-btn" data-status="error">失败</button>
+                      </div>
+                    </div>
+                    <div class="filter-section">
+                      <div class="filter-header" data-filter-group="user">
+                        <div class="filter-label">用户：</div>
+                      </div>
+                      <div class="filter-content" id="userFilterButtons">
+                        <button class="filter-btn" data-user="all">所有用户</button>
+                        <button class="filter-btn active" data-user="current" id="currentUserBtn">当前用户</button>
+                      </div>
+                    </div>
+                    <div class="filter-section">
+                      <div class="filter-header" data-filter-group="automated">
+                        <div class="filter-label">特殊追踪：</div>
+                      </div>
+                      <div class="filter-content">
+                        <button id="trackProcessAutomatedBtn" class="filter-btn" title="为 Platform Event 创建/续期日志追踪（1小时）">
+                          追踪 Process Automated
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <button class="filter-collapse-btn" id="filterCollapseBtn" title="展开/折叠筛选">
+                    <span class="filter-collapse-text">展开筛选</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="polling-bar-container">
+                <div class="polling-bar" id="pollingBar"></div>
+                <span class="polling-interval" id="pollingInterval">3s</span>
+              </div>
+
+              <div class="logs-container">
+                <div class="loading-state" id="loadingState">
+                  <div class="spinner"></div>
+                  <span>加载中...</span>
+                </div>
+                <div class="empty-state" id="emptyState" style="display:none">
+                  <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                    <path d="M3 9h18M8 3v4M16 3v4"></path>
+                  </svg>
+                  <p>暂无日志</p>
+                  <span class="hint">在 Salesforce 中执行操作后，日志将显示在这里</span>
+                </div>
+                <div class="logs-list" id="logsList"></div>
+              </div>
+            </div>
+
+            <!-- Search View -->
+            <div class="view" id="searchView" style="display:none">
+              <div class="toolbar">
+                <div class="search-toolbar">
+                  <input type="text" id="searchInput" placeholder="输入搜索关键词..." class="search-input">
+                  <button id="searchBtn" class="btn btn-small search-btn" disabled>搜索</button>
+                  <button id="clearSearchBtn" class="btn btn-small btn-secondary" style="display:none">清空</button>
+                </div>
+                <div class="search-filter-bar">
+                  <label class="search-filter-checkbox">
+                    <input type="checkbox" id="searchMyLogs" checked>
+                    <span>只看我的log</span>
+                  </label>
+                  <label class="search-filter-checkbox">
+                    <input type="checkbox" id="searchUnread" checked>
+                    <span>只看未读log</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="search-container">
+                <div class="search-loading-state" id="searchLoadingState" style="display:none">
+                  <div class="spinner"></div>
+                  <span>搜索中...</span>
+                  <span class="search-progress" id="searchProgress">0 / 0</span>
+                  <button id="cancelSearchBtn" class="btn btn-small btn-secondary">取消</button>
+                </div>
+                <div class="empty-state" id="searchEmptyState" style="display:none">
+                  <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                  <p>未找到匹配的日志</p>
+                  <span class="hint">尝试其他关键词</span>
+                </div>
+                <div class="search-results-list" id="searchResultsList"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-panel">
+          <div class="detail-empty" id="detailEmpty">
+            <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path>
+            </svg>
+            <h3>选择日志查看详情</h3>
+            <p>点击左侧列表中的日志，查看详细内容</p>
+          </div>
+          <div class="detail-content" id="detailContent" style="display:none">
+            <div class="detail-header">
+              <div class="detail-meta" id="detailMeta"></div>
+              <button id="downloadBtn" class="btn btn-icon" title="下载">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 3v12"></path>
+                </svg>
+              </button>
+            </div>
+            <div class="detail-body">
+              <div class="log-body" id="logBody"></div>
+              <div class="detail-footer">
+                <div class="detail-filter-buttons">
+                  <button id="debugOnlyBtn" class="btn btn-small">Debug only</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+  
+  <!-- 设置弹窗 -->
+  <div class="settings-modal" id="settingsModal">
+    <div class="settings-modal-content">
+      <div class="settings-modal-header">
+        <h3>设置</h3>
+        <button class="settings-modal-close" id="settingsModalClose">&times;</button>
+      </div>
+      <div class="settings-modal-body">
+        <div class="settings-section">
+          <h4>当前用户追踪</h4>
+          <div class="settings-item">
+            <label class="settings-label">
+              <span>到期后自动续期</span>
+              <input type="checkbox" id="settingAutoRenewCurrentUser" class="settings-checkbox">
+              <span class="settings-toggle"></span>
+            </label>
+          </div>
+          <div class="settings-item">
+            <label class="settings-label">
+              <span>自动续期间隔（分钟）</span>
+              <input type="number" id="settingRenewIntervalCurrentUser" class="settings-input-number" min="1" max="60" value="50">
+            </label>
+          </div>
+        </div>
+        
+        <div class="settings-section">
+          <h4>Process Automated 追踪</h4>
+          <div class="settings-item">
+            <label class="settings-label">
+              <span>开启插件后立刻续期</span>
+              <input type="checkbox" id="settingAutoStartProcessAutomated" class="settings-checkbox">
+              <span class="settings-toggle"></span>
+            </label>
+          </div>
+          <div class="settings-item">
+            <label class="settings-label">
+              <span>到期后自动续期</span>
+              <input type="checkbox" id="settingAutoRenewProcessAutomated" class="settings-checkbox">
+              <span class="settings-toggle"></span>
+            </label>
+          </div>
+          <div class="settings-item">
+            <label class="settings-label">
+              <span>自动续期间隔（分钟）</span>
+              <input type="number" id="settingRenewIntervalProcessAutomated" class="settings-input-number" min="1" max="60" value="50">
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="settings-modal-footer">
+        <button class="btn btn-secondary" id="settingsCancelBtn">取消</button>
+        <button class="btn btn-primary" id="settingsSaveBtn">保存</button>
+      </div>
+    </div>
+  </div>
+  
+  <div class="loading-overlay" id="loadingOverlay" style="display: none;">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">加载中...</div>
+  </div>
+
+<script src="window.js"></script>
+</body>
+</html>

@@ -2,6 +2,16 @@
 // 云同步诊断日志（开发版扩展 chrome.storage.sync 行为受限制）
 // 在 Service Worker 控制台查看（chrome://extensions → 检查视图 service worker）
 // ============================================
+import { TOOL_WINDOW_DEFS } from './src/tools/_shared/toolWindows.js'
+import {
+  listLoggedInSfEnvironments,
+  getSession,
+  normalizeSfHostname
+} from './src/tools/_shared/sfSessionBg.js'
+import { handleApexLogMessage, initApexLogBackground } from './src/tools/apex-log/apexLogBackground.js'
+
+initApexLogBackground().catch((e) => console.warn('[ApexLog] init failed', e))
+
 const _BG_TAG = '[CloudSync/BG]'
 const _bgLog = (action, detail) => {}
 const _bgWarn = (action, detail) => {}
@@ -71,7 +81,100 @@ chrome.action.onClicked.addListener(async (tab) => {
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
   .catch(() => {});
 
+// ========== 工具独立窗口（不随 Side Panel 关闭）==========
+/** toolId -> chrome.windows windowId */
+const toolWindowIds = Object.create(null)
+
+async function openToolWindow(toolId) {
+  const def = TOOL_WINDOW_DEFS[toolId]
+  if (!def) {
+    return { success: false, error: '未知工具：' + toolId }
+  }
+
+  const existingId = toolWindowIds[toolId]
+  if (existingId != null) {
+    try {
+      await chrome.windows.update(existingId, { focused: true })
+      return { success: true, focused: true, windowId: existingId }
+    } catch (e) {
+      delete toolWindowIds[toolId]
+    }
+  }
+
+  const pageUrl = chrome.runtime.getURL(def.page) + (def.query ? `?${def.query}` : '')
+  try {
+    const win = await chrome.windows.create({
+      url: pageUrl,
+      type: def.type || 'popup',
+      width: def.width,
+      height: def.height,
+      focused: true
+    })
+    if (win?.id != null) {
+      toolWindowIds[toolId] = win.id
+    }
+    return { success: true, created: true, windowId: win?.id, url: pageUrl }
+  } catch (e) {
+    console.error('[ToolWindow] 打开失败', toolId, pageUrl, e)
+    return { success: false, error: e.message || String(e), url: pageUrl }
+  }
+}
+
+chrome.windows.onRemoved.addListener((windowId) => {
+  for (const [toolId, id] of Object.entries(toolWindowIds)) {
+    if (id === windowId) {
+      delete toolWindowIds[toolId]
+      break
+    }
+  }
+})
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (handleApexLogMessage(request, sender, sendResponse)) {
+    return true
+  }
+
+  if (request.action === 'openToolWindow') {
+    openToolWindow(request.toolId)
+      .then((result) => sendResponse(result))
+      .catch((error) => sendResponse({ success: false, error: error.message || String(error) }))
+    return true
+  }
+
+  if (request.action === 'listSfEnvironments') {
+    listLoggedInSfEnvironments()
+      .then((environments) => sendResponse({ success: true, environments }))
+      .catch((error) =>
+        sendResponse({ success: false, error: error.message || String(error), environments: [] })
+      )
+    return true
+  }
+
+  if (request.action === 'getSfSession') {
+    const hostname = normalizeSfHostname(request.hostname || '')
+    if (!hostname) {
+      sendResponse({ success: false, error: 'hostname 为空' })
+      return true
+    }
+    getSession(hostname)
+      .then((session) => {
+        if (!session?.key) {
+          sendResponse({ success: false, error: '未找到 sid Cookie' })
+          return
+        }
+        sendResponse({
+          success: true,
+          session: {
+            sessionId: session.key,
+            hostname: session.hostname,
+            instanceUrl: `https://${session.hostname}`
+          }
+        })
+      })
+      .catch((error) => sendResponse({ success: false, error: error.message || String(error) }))
+    return true
+  }
+
   if (request.action === 'captureVisibleTab') {
     chrome.tabs.captureVisibleTab({ format: 'png' })
       .then((dataUrl) => sendResponse({ success: true, dataUrl }))

@@ -1,161 +1,169 @@
 <template>
-  <AuthScreen v-if="!isAuthed" @authed="onAuthed" />
-  <div v-else class="app-container">
-    <Toolbar
-      :env-count="environments.length"
-      :max-environments="MAX_ENVIRONMENTS"
-      :account-email="currentUser?.email || ''"
-      @add-env="openEditModal"
-      @add-group="openGroupModal"
-      @share="shareDialogVisible = true"
-      @account="accountDialogVisible = true"
-    />
-    
-    <div class="env-list" ref="envListRef">
-      <GroupSection
-        v-for="group in displayGroups"
-        :key="group.id"
-        :group="group"
-        :environments="getEnvsByGroup(group.id)"
-        :groups="groups"
-        @toggle-collapse="toggleGroupCollapse"
-        @edit-group="openEditGroupModal"
-        @delete-group="confirmDeleteGroup"
-        @login="handleLogin"
-        @edit-env="openEditModal"
-        @clone-env="handleCloneEnv"
-        @delete-env="confirmDeleteEnv"
-        @copy-success="handleCopySuccess"
-        @drag-env="handleEnvDrag"
-      />
+  <div class="shell">
+    <SideNavTabs v-model="activeTab" />
+
+    <!-- 标签「登录」：扩展账户鉴权仅锁此区域 -->
+    <div v-show="activeTab === 'login'" class="tab-panel tab-panel-login">
+      <AuthScreen v-if="!isAuthed" @authed="onAuthed" />
+      <div v-else class="app-container">
+        <Toolbar
+          :env-count="environments.length"
+          :max-environments="MAX_ENVIRONMENTS"
+          :account-email="currentUser?.email || ''"
+          @add-env="openEditModal"
+          @add-group="openGroupModal"
+          @share="shareDialogVisible = true"
+          @account="accountDialogVisible = true"
+        />
+
+        <div class="env-list" ref="envListRef">
+          <GroupSection
+            v-for="group in displayGroups"
+            :key="group.id"
+            :group="group"
+            :environments="getEnvsByGroup(group.id)"
+            :groups="groups"
+            @toggle-collapse="toggleGroupCollapse"
+            @edit-group="openEditGroupModal"
+            @delete-group="confirmDeleteGroup"
+            @login="handleLogin"
+            @edit-env="openEditModal"
+            @clone-env="handleCloneEnv"
+            @delete-env="confirmDeleteEnv"
+            @copy-success="handleCopySuccess"
+            @drag-env="handleEnvDrag"
+          />
+        </div>
+
+        <EditModal
+          :visible="editModalVisible"
+          :env="editingEnv"
+          :groups="groups"
+          :is-slave="false"
+          @close="closeEditModal"
+          @save="handleSaveEnv"
+          @add-group="handleAddGroupFromModal"
+        />
+
+        <GroupModal
+          :visible="groupModalVisible"
+          :group="editingGroup"
+          @close="closeGroupModal"
+          @save="handleSaveGroup"
+        />
+
+        <DeleteModal
+          :visible="deleteModalVisible"
+          :type="deleteType"
+          :name="deleteName"
+          @close="closeDeleteModal"
+          @confirm="handleConfirmDelete"
+        />
+
+        <AccountDialog
+          :visible="accountDialogVisible"
+          @close="accountDialogVisible = false"
+          @signed-out="onSignedOut"
+        />
+
+        <ShareDialog
+          :visible="shareDialogVisible"
+          :environments="environments"
+          @close="shareDialogVisible = false"
+          @accepted="handleShareAccepted"
+        />
+
+        <!-- Passkey 选择对话框（v4：Side Panel 集中处理） -->
+        <div v-if="pkDialog.visible" class="pk-overlay" @click.self="cancelPasskeyDialog">
+          <div class="pk-dialog">
+            <div class="pk-header">
+              <span>{{ pkDialog.type === 'get' ? '选择 Passkey 验证' : '选择环境绑定 Passkey' }}</span>
+            </div>
+
+            <div v-if="pkDialog.showCreateForm" class="pk-body">
+              <p class="pk-desc">输入别名即可创建临时环境（之后可补充账号密码）：</p>
+              <input
+                ref="pkAliasInput"
+                v-model="pkDialog.newAlias"
+                class="pk-input"
+                placeholder="环境别名，如：我的生产环境"
+                @keyup.enter="createQuickEnv"
+              />
+              <div class="pk-create-btns">
+                <button class="pk-btn pk-btn-cancel" @click="pkDialog.showCreateForm = false">返回列表</button>
+                <button class="pk-btn pk-btn-primary" @click="createQuickEnv">保存并绑定</button>
+              </div>
+            </div>
+
+            <div v-else class="pk-body">
+              <p class="pk-desc">
+                {{ pkDialog.type === 'get' ? 'Salesforce 请求了 Passkey 验证，请选择用于验证的环境：' : 'Salesforce 请求注册新 Passkey，请选择要绑定的环境：' }}
+              </p>
+              <div
+                v-for="env in pkDialog.environments"
+                :key="env.id"
+                class="pk-item"
+                @click="selectPasskeyEnv(env)"
+              >
+                <div class="pk-item-name">{{ env.alias || '(未命名)' }}</div>
+                <div class="pk-item-user">{{ env.username || '未设置账号' }}</div>
+                <div class="pk-item-tags">
+                  <span class="pk-item-tag">{{ env.type === 'production' ? 'Production' : env.type === 'sandbox' ? 'Sandbox' : 'Custom' }}</span>
+                  <span v-if="!env.username || !env.password" class="pk-item-tag pk-item-tag-warn">未完善</span>
+                </div>
+              </div>
+              <p v-if="pkDialog.environments.length === 0" class="pk-empty">
+                <template v-if="pkDialog.type === 'get'">
+                  <span>当前没有已绑定 Passkey 的环境</span>
+                  <span class="pk-empty-sub">将使用系统 Passkey 进行验证</span>
+                </template>
+                <template v-else>没有可用的环境</template>
+              </p>
+            </div>
+
+            <div class="pk-footer" v-if="!pkDialog.showCreateForm">
+              <button
+                v-if="pkDialog.type !== 'get'"
+                class="pk-btn pk-btn-link"
+                @click="pkDialog.showCreateForm = true; pkDialog.newAlias = ''"
+              >创建新环境</button>
+              <button class="pk-btn pk-btn-cancel" @click="cancelPasskeyDialog">
+                取消/使用其他验证方式
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="passkeySaving" class="pk-saving-overlay">
+          <div class="pk-saving-box">
+            <div class="pk-spinner"></div>
+            <span class="pk-saving-text">{{ passkeySavingStage }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 启动 / 同步遮罩仅覆盖登录标签，不挡工具宫格 -->
+      <div v-if="bootOverlay.visible" class="boot-overlay boot-overlay-login">
+        <div class="boot-box">
+          <div class="pk-spinner"></div>
+          <span class="boot-message">{{ bootOverlay.message }}</span>
+          <span v-if="bootOverlay.detail" class="boot-detail">{{ bootOverlay.detail }}</span>
+        </div>
+      </div>
     </div>
-    
-    <EditModal
-      :visible="editModalVisible"
-      :env="editingEnv"
-      :groups="groups"
-      :is-slave="false"
-      @close="closeEditModal"
-      @save="handleSaveEnv"
-      @add-group="handleAddGroupFromModal"
-    />
-    
-    <GroupModal
-      :visible="groupModalVisible"
-      :group="editingGroup"
-      @close="closeGroupModal"
-      @save="handleSaveGroup"
-    />
-    
-    <DeleteModal
-      :visible="deleteModalVisible"
-      :type="deleteType"
-      :name="deleteName"
-      @close="closeDeleteModal"
-      @confirm="handleConfirmDelete"
-    />
 
-    
+    <!-- 标签「工具」：不依赖扩展账户 -->
+    <div v-show="activeTab === 'tools'" class="tab-panel">
+      <ToolHub @open-tool="openToolWindow" />
+    </div>
 
-    <AccountDialog
-      :visible="accountDialogVisible"
-      @close="accountDialogVisible = false"
-      @signed-out="onSignedOut"
-    />
-
-    <ShareDialog
-      :visible="shareDialogVisible"
-      :environments="environments"
-      @close="shareDialogVisible = false"
-      @accepted="handleShareAccepted"
-    />
-
+    <!-- Toast 提升到壳层，工具标签也能看到错误提示 -->
     <Toast
       :visible="toastVisible"
       :message="toastMessage"
       :type="toastType"
       @close="closeToast"
     />
-
-    <!-- Passkey 选择对话框（v4：Side Panel 集中处理） -->
-    <div v-if="pkDialog.visible" class="pk-overlay" @click.self="cancelPasskeyDialog">
-      <div class="pk-dialog">
-        <div class="pk-header">
-          <span>{{ pkDialog.type === 'get' ? '选择 Passkey 验证' : '选择环境绑定 Passkey' }}</span>
-        </div>
-
-        <!-- 快速创建环境表单 -->
-        <div v-if="pkDialog.showCreateForm" class="pk-body">
-          <p class="pk-desc">输入别名即可创建临时环境（之后可补充账号密码）：</p>
-          <input
-            ref="pkAliasInput"
-            v-model="pkDialog.newAlias"
-            class="pk-input"
-            placeholder="环境别名，如：我的生产环境"
-            @keyup.enter="createQuickEnv"
-          />
-          <div class="pk-create-btns">
-            <button class="pk-btn pk-btn-cancel" @click="pkDialog.showCreateForm = false">返回列表</button>
-            <button class="pk-btn pk-btn-primary" @click="createQuickEnv">保存并绑定</button>
-          </div>
-        </div>
-
-        <!-- 环境列表 -->
-        <div v-else class="pk-body">
-          <p class="pk-desc">
-            {{ pkDialog.type === 'get' ? 'Salesforce 请求了 Passkey 验证，请选择用于验证的环境：' : 'Salesforce 请求注册新 Passkey，请选择要绑定的环境：' }}
-          </p>
-          <div
-            v-for="env in pkDialog.environments"
-            :key="env.id"
-            class="pk-item"
-            @click="selectPasskeyEnv(env)"
-          >
-            <div class="pk-item-name">{{ env.alias || '(未命名)' }}</div>
-            <div class="pk-item-user">{{ env.username || '未设置账号' }}</div>
-            <div class="pk-item-tags">
-              <span class="pk-item-tag">{{ env.type === 'production' ? 'Production' : env.type === 'sandbox' ? 'Sandbox' : 'Custom' }}</span>
-              <span v-if="!env.username || !env.password" class="pk-item-tag pk-item-tag-warn">未完善</span>
-            </div>
-          </div>
-          <p v-if="pkDialog.environments.length === 0" class="pk-empty">
-            <template v-if="pkDialog.type === 'get'">
-              <span>当前没有已绑定 Passkey 的环境</span>
-              <span class="pk-empty-sub">将使用系统 Passkey 进行验证</span>
-            </template>
-            <template v-else>没有可用的环境</template>
-          </p>
-        </div>
-
-        <div class="pk-footer" v-if="!pkDialog.showCreateForm">
-          <button
-            v-if="pkDialog.type !== 'get'"
-            class="pk-btn pk-btn-link"
-            @click="pkDialog.showCreateForm = true; pkDialog.newAlias = ''"
-          >创建新环境</button>
-          <button class="pk-btn pk-btn-cancel" @click="cancelPasskeyDialog">
-            取消/使用其他验证方式
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Passkey 保存/验证加载遮罩 -->
-    <div v-if="passkeySaving" class="pk-saving-overlay">
-      <div class="pk-saving-box">
-        <div class="pk-spinner"></div>
-        <span class="pk-saving-text">{{ passkeySavingStage }}</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- 启动 / 登录后数据同步遮罩（覆盖 AuthScreen 与主界面） -->
-  <div v-if="bootOverlay.visible" class="boot-overlay">
-    <div class="boot-box">
-      <div class="pk-spinner"></div>
-      <span class="boot-message">{{ bootOverlay.message }}</span>
-      <span v-if="bootOverlay.detail" class="boot-detail">{{ bootOverlay.detail }}</span>
-    </div>
   </div>
 </template>
 
@@ -180,6 +188,9 @@ import Toast from './components/Toast.vue'
 import AuthScreen from './components/AuthScreen.vue'
 import AccountDialog from './components/AccountDialog.vue'
 import ShareDialog from './components/ShareDialog.vue'
+import SideNavTabs from './components/SideNavTabs.vue'
+import ToolHub from './components/ToolHub.vue'
+import { getToolWindowDef, buildToolWindowUrl } from './tools/_shared/toolWindows.js'
 
 const { loadEnvironments, saveEnvironments, deleteEnvironment, loadGroups, saveGroups, deleteGroup } = useStorage()
 const { isAuthed, getCryptoKeyRaw, currentUser, getSession, getUnlockStatus } = useAuth()
@@ -190,11 +201,69 @@ const environments = ref([])
 const groups = ref([])
 const envListRef = ref(null)
 const toolbarRef = ref(null)
+/** 工具导航：login | tools；默认登录标签 */
+const activeTab = ref('login')
+
+const toastVisible = ref(false)
+const toastMessage = ref('')
+const toastType = ref('success')
+
+const showToast = (message, type = 'success') => {
+  toastMessage.value = message
+  toastType.value = type
+  toastVisible.value = true
+  setTimeout(() => {
+    toastVisible.value = false
+  }, 3000)
+}
+
+const closeToast = () => {
+  toastVisible.value = false
+}
+
+const openToolWindow = async (toolId) => {
+  const def = getToolWindowDef(toolId)
+  if (!def) {
+    showToast('未知工具：' + toolId, 'error')
+    return
+  }
+  if (typeof chrome === 'undefined' || !chrome.runtime?.id) {
+    showToast('当前不在扩展环境中，无法打开工具窗口', 'error')
+    return
+  }
+
+  // 优先走 Service Worker（便于聚焦已开窗口）；失败则 Side Panel 直开
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'openToolWindow', toolId })
+    if (response?.success) return
+    if (response && response.success === false) {
+      console.warn('[ToolHub] SW 开窗失败，尝试直开', response)
+    }
+  } catch (e) {
+    console.warn('[ToolHub] SW 消息失败，尝试直开', e)
+  }
+
+  if (!chrome.windows?.create) {
+    showToast('当前浏览器不支持打开独立窗口', 'error')
+    return
+  }
+
+  try {
+    await chrome.windows.create({
+      url: buildToolWindowUrl(toolId),
+      type: def.type || 'popup',
+      width: def.width,
+      height: def.height,
+      focused: true
+    })
+  } catch (e) {
+    showToast(e.message || '打开工具窗口失败', 'error')
+  }
+}
 
 const editModalVisible = ref(false)
 const groupModalVisible = ref(false)
 const deleteModalVisible = ref(false)
-const toastVisible = ref(false)
 const manualBindVisible = ref(false)
 const accountDialogVisible = ref(false)
 const shareDialogVisible = ref(false)
@@ -205,9 +274,6 @@ const deleteType = ref('env')
 const deleteName = ref('')
 const deleteId = ref(null)
 const manualBindEnv = ref(null)
-
-const toastMessage = ref('')
-const toastType = ref('success')
 
 // 启动 / 登录后数据同步遮罩（默认开启，避免自动跳过登录时闪一下空界面）
 const bootOverlay = ref({
@@ -345,15 +411,6 @@ const getEnvsByGroup = (groupId) => {
     }
     return env.groupId === groupId
   })
-}
-
-const showToast = (message, type = 'success') => {
-  toastMessage.value = message
-  toastType.value = type
-  toastVisible.value = true
-  setTimeout(() => {
-    toastVisible.value = false
-  }, 3000)
 }
 
 const openEditModal = async (env = null) => {
@@ -796,10 +853,6 @@ const initGroupSortable = () => {
   })
 }
 
-const closeToast = () => {
-  toastVisible.value = false
-}
-
 // ========== 登录态与数据加载 ==========
 
 const SOURCE_LABEL = {
@@ -1020,8 +1073,25 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.app-container {
+.shell {
   min-height: 100vh;
+  background: #eef5fc;
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-panel {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.tab-panel-login {
+  background: #eef5fc;
+}
+
+.app-container {
+  min-height: calc(100vh - 42px);
   background-color: #eef5fc;
 }
 
@@ -1029,15 +1099,19 @@ onBeforeUnmount(() => {
   padding: 10px;
 }
 
-/* 启动 / 数据同步遮罩 */
+/* 启动 / 数据同步遮罩：仅盖住登录标签区域 */
 .boot-overlay {
-  position: fixed;
+  position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(238, 245, 252, 0.92);
   z-index: 20000;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.boot-overlay-login {
+  min-height: calc(100vh - 42px);
 }
 .boot-box {
   background: #fff;
