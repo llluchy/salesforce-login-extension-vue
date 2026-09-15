@@ -101,6 +101,14 @@ export class SfRestClient {
       `/services/data/v${this.apiVersion}/query/?q=${encodeURIComponent(soql)}`
     )
   }
+
+  /** 更新单条记录（PATCH） */
+  updateSObject(objectApiName, recordId, fields) {
+    return this.rest(
+      `/services/data/v${this.apiVersion}/sobjects/${encodeURIComponent(objectApiName)}/${encodeURIComponent(recordId)}`,
+      { method: 'PATCH', body: fields }
+    )
+  }
 }
 
 /** 通过 background 列出已登录环境 */

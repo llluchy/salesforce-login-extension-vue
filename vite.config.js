@@ -25,11 +25,14 @@ export default defineConfig({
     }
   },
   server: {
-    port: 5173,
-    strictPort: true,
+    port: 5175,
+    strictPort: true, // 端口被占用则直接失败，绝不回退到 5173
+    origin: 'http://localhost:5175',
     hmr: {
-      port: 5173,
-      host: 'localhost'
+      protocol: 'ws',
+      host: 'localhost',
+      port: 5175,
+      clientPort: 5175
     }
   }
 })

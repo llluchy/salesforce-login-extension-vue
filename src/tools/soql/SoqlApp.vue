@@ -1,5 +1,5 @@
 <template>
-  <div class="soql-app">
+  <div class="soql-app" @contextmenu="onAppContextMenu" @click="onAppClick">
     <header class="soql-header">
       <h1>SOQL Creator</h1>
       <div class="soql-header-actions">
@@ -74,9 +74,12 @@
         </div>
       </aside>
 
-      <section class="panel fields-panel">
+      <section :class="['panel', 'fields-panel', `mode-${fieldPanelMode}`]">
         <div class="panel-head">
-          <span>字段 {{ currentObject ? `· ${currentObject.label}` : '' }}</span>
+          <div class="panel-head-left">
+            <span>字段 {{ currentObject ? `· ${currentObject.label}` : '' }}</span>
+            <span class="mode-badge">{{ fieldPanelMode === 'where' ? '加条件' : '选字段' }}</span>
+          </div>
           <span class="count">{{ selectedFieldNames.length }}/{{ filteredFields.length }}</span>
         </div>
         <div class="field-toolbar">
@@ -107,9 +110,23 @@
               @click="fieldKindFilter = 'custom'"
             >自定义</button>
           </div>
+          <div class="field-mode-chips">
+            <button
+              type="button"
+              :class="['chip', 'chip-select', { active: fieldPanelMode === 'select' }]"
+              :disabled="!currentObject"
+              @click="fieldPanelMode = 'select'"
+            >选字段</button>
+            <button
+              type="button"
+              :class="['chip', 'chip-where', { active: fieldPanelMode === 'where' }]"
+              :disabled="!currentObject"
+              @click="fieldPanelMode = 'where'"
+            >加条件</button>
+          </div>
           <div class="field-actions">
-            <button type="button" class="btn btn-sm" :disabled="!currentObject" @click="selectAllFields">全选</button>
-            <button type="button" class="btn btn-sm" :disabled="!currentObject" @click="clearFields">清空</button>
+            <button type="button" class="btn btn-sm" :disabled="!currentObject || fieldPanelMode !== 'select'" @click="selectAllFields">全选</button>
+            <button type="button" class="btn btn-sm" :disabled="!currentObject || fieldPanelMode !== 'select'" @click="clearFields">清空</button>
           </div>
         </div>
         <div class="list-scroll fields-list">
@@ -117,9 +134,14 @@
             v-for="field in filteredFields"
             :key="field.name"
             type="button"
-            :class="['field-item', { selected: selectedFieldSet.has(field.name) }]"
+            :class="['field-item', {
+              selected: fieldPanelMode === 'select' && selectedFieldSet.has(field.name),
+              whereable: fieldPanelMode === 'where' && field.filterable,
+              unfilterable: fieldPanelMode === 'where' && !field.filterable
+            }]"
             :title="fieldTooltip(field)"
-            @click="toggleField(field.name)"
+            :disabled="fieldPanelMode === 'where' && !field.filterable"
+            @click="onFieldCardClick(field)"
             @dblclick.stop="copyFieldText(field)"
           >
             <span
@@ -158,19 +180,181 @@
               class="limit-input"
               :disabled="!limitEnabled"
             />
-            <button type="button" class="btn btn-sm" :disabled="!canBuildQuery" @click="applyGeneratedQuery">生成</button>
             <button type="button" class="btn btn-sm" :disabled="!soqlText.trim()" @click="copySoql">复制</button>
             <button type="button" class="btn btn-primary btn-sm" :disabled="!canExecute || executing" @click="executeQuery">
               {{ executing ? '执行中…' : '执行' }}
             </button>
           </div>
         </div>
-        <textarea
-          v-model="soqlText"
-          class="soql-editor"
-          spellcheck="false"
-          placeholder="SELECT Id, Name FROM Account"
-        />
+        <div class="soql-editor-wrap">
+          <button
+            type="button"
+            class="soql-fold-btn"
+            :title="soqlEditorOpen ? '折叠手写 SOQL' : '展开手写 SOQL'"
+            @click="soqlEditorOpen = !soqlEditorOpen"
+          >
+            <span class="fold-caret">{{ soqlEditorOpen ? '▾' : '▸' }}</span>
+            <span>{{ soqlEditorOpen ? '收起' : '手写' }}</span>
+          </button>
+          <div v-if="soqlEditorOpen" class="soql-editor-block">
+            <textarea
+              ref="soqlEditorEl"
+              v-model="soqlText"
+              class="soql-editor"
+              spellcheck="false"
+              placeholder="SELECT Id, Name FROM Account"
+              @input="onSoqlEditorActivity"
+              @click="onSoqlEditorActivity"
+              @keyup="onSoqlEditorActivity"
+              @keydown="onSoqlSuggestKeydown"
+            />
+            <div v-if="fieldSuggestions.length" class="soql-suggest">
+              <button
+                v-for="(item, idx) in fieldSuggestions"
+                :key="item.name"
+                type="button"
+                :class="['suggest-item', { active: idx === suggestIndex }]"
+                @mousedown.prevent="applyFieldSuggestion(item)"
+              >
+                <span class="suggest-name">{{ item.name }}</span>
+                <span class="suggest-label">{{ item.label }}</span>
+              </button>
+            </div>
+          </div>
+          <button
+            v-else
+            type="button"
+            class="soql-preview"
+            :title="soqlText || '展开手写 SOQL'"
+            @click="soqlEditorOpen = true"
+          >
+            <span class="soql-preview-text">{{ soqlText || '点选即可生成；点击展开手写 SOQL' }}</span>
+          </button>
+        </div>
+        <div class="where-panel">
+          <div class="where-head">
+            <span>WHERE</span>
+            <span class="count" v-if="whereConditions.length">{{ validWhereCount }}/{{ whereConditions.length }}</span>
+            <button
+              type="button"
+              class="btn btn-sm"
+              :disabled="whereConditions.length === 0"
+              @click="clearWhereConditions"
+            >清空条件</button>
+          </div>
+          <p v-if="whereConditions.length === 0" class="where-empty">切换到「加条件」后点击字段即可添加</p>
+          <div v-else class="where-list">
+            <div
+              v-for="cond in whereConditions"
+              :key="cond.id"
+              :class="['where-row', { wide: isMultiValue(cond.operator) && whereKind(cond) === 'picklist' }]"
+            >
+              <div class="where-field">
+                <span class="where-label">{{ fieldLabel(cond.fieldApiName) }}</span>
+                <span class="where-api">{{ cond.fieldApiName }}</span>
+              </div>
+              <select v-model="cond.operator" class="where-op" @change="onWhereOperatorChange(cond)">
+                <option v-for="op in operatorsForField(cond.fieldApiName)" :key="op" :value="op">{{ op }}</option>
+              </select>
+              <div class="where-values" @change="syncSoqlFromBuilder" @input="syncSoqlFromBuilder">
+                <template v-if="needsValue(cond.operator)">
+                  <select
+                    v-if="whereKind(cond) === 'boolean'"
+                    v-model="cond.value"
+                    class="where-input"
+                  >
+                    <option disabled value="">选择</option>
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                  <select
+                    v-else-if="whereKind(cond) === 'picklist' && !isMultiValue(cond.operator)"
+                    v-model="cond.value"
+                    class="where-input"
+                  >
+                    <option disabled value="">选择选项</option>
+                    <option
+                      v-for="opt in picklistOptions(cond.fieldApiName)"
+                      :key="opt.value"
+                      :value="opt.value"
+                    >{{ opt.label || opt.value }}</option>
+                  </select>
+                  <select
+                    v-else-if="whereKind(cond) === 'picklist' && isMultiValue(cond.operator)"
+                    v-model="cond.value"
+                    class="where-input where-multi"
+                    multiple
+                  >
+                    <option
+                      v-for="opt in picklistOptions(cond.fieldApiName)"
+                      :key="opt.value"
+                      :value="opt.value"
+                    >{{ opt.label || opt.value }}</option>
+                  </select>
+                  <input
+                    v-else-if="whereKind(cond) === 'date'"
+                    v-model="cond.value"
+                    type="date"
+                    class="where-input"
+                  />
+                  <input
+                    v-else-if="whereKind(cond) === 'datetime'"
+                    v-model="cond.value"
+                    type="datetime-local"
+                    class="where-input"
+                  />
+                  <input
+                    v-else-if="whereKind(cond) === 'time'"
+                    v-model="cond.value"
+                    type="time"
+                    class="where-input"
+                  />
+                  <input
+                    v-else-if="whereKind(cond) === 'number'"
+                    v-model="cond.value"
+                    type="number"
+                    class="where-input"
+                  />
+                  <input
+                    v-else
+                    v-model.trim="cond.value"
+                    type="text"
+                    class="where-input"
+                    :placeholder="cond.operator === 'IN' ? 'a, b, c' : (cond.operator === 'LIKE' ? '%text%' : '')"
+                  />
+                  <template v-if="needsValue2(cond.operator)">
+                    <span class="where-to">至</span>
+                    <input
+                      v-if="whereKind(cond) === 'date'"
+                      v-model="cond.value2"
+                      type="date"
+                      class="where-input"
+                    />
+                    <input
+                      v-else-if="whereKind(cond) === 'datetime'"
+                      v-model="cond.value2"
+                      type="datetime-local"
+                      class="where-input"
+                    />
+                    <input
+                      v-else-if="whereKind(cond) === 'number'"
+                      v-model="cond.value2"
+                      type="number"
+                      class="where-input"
+                    />
+                    <input
+                      v-else
+                      v-model.trim="cond.value2"
+                      type="text"
+                      class="where-input"
+                    />
+                  </template>
+                </template>
+              </div>
+              <button type="button" class="where-remove" title="删除条件" @click="removeWhereCondition(cond.id)">×</button>
+            </div>
+          </div>
+        </div>
         <p v-if="errorMessage" class="error-text inline-error">{{ errorMessage }}</p>
         <p v-if="statusMessage" class="status-text">{{ statusMessage }}</p>
 
@@ -183,7 +367,20 @@
             <thead>
               <tr>
                 <th class="col-detail">详</th>
-                <th v-for="col in resultColumns" :key="col">{{ col }}</th>
+                <th v-for="col in resultColumns" :key="col" class="col-head">
+                  <button
+                    type="button"
+                    class="th-label th-copy"
+                    :title="fieldLabel(col)"
+                    @click="copyText(fieldLabel(col))"
+                  >{{ fieldLabel(col) }}</button>
+                  <button
+                    type="button"
+                    class="th-api th-copy"
+                    :title="col"
+                    @click="copyText(col)"
+                  >{{ col }}</button>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -197,22 +394,217 @@
                     @click="openRecordDetail(row)"
                   >详</button>
                 </td>
-                <td v-for="col in resultColumns" :key="col">{{ formatCell(row[col]) }}</td>
+                <td
+                  v-for="col in resultColumns"
+                  :key="col"
+                  class="result-cell"
+                  :data-row="idx"
+                  :data-col="col"
+                  :class="{
+                    selected: isCellSelected(idx, col),
+                    dirty: isCellDirty(idx, col),
+                    editing: isCellEditing(idx, col)
+                  }"
+                  @click.stop="selectResultCell(idx, col)"
+                  @dblclick.stop="startEditCell(idx, col)"
+                >
+                  <template v-if="isCellEditing(idx, col)">
+                    <select
+                      v-if="cellFieldKind(col) === 'boolean'"
+                      :ref="(el) => setCellEditorRef(el)"
+                      class="cell-editor"
+                      :value="cellEditorValue(idx, col)"
+                      @change="onCellEditorChange(idx, col, $event.target.value)"
+                      @keydown.esc.prevent="cancelEditCell"
+                      @blur="onCellEditorBlur"
+                      @click.stop
+                    >
+                      <option v-if="isFieldNillable(col)" value="">(空)</option>
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                    <select
+                      v-else-if="cellFieldKind(col) === 'picklist' && fieldType(col) !== 'multipicklist'"
+                      :ref="(el) => setCellEditorRef(el)"
+                      class="cell-editor"
+                      :value="cellEditorValue(idx, col)"
+                      @change="onCellEditorChange(idx, col, $event.target.value)"
+                      @keydown.esc.prevent="cancelEditCell"
+                      @blur="onCellEditorBlur"
+                      @click.stop
+                    >
+                      <option v-if="isFieldNillable(col)" value="">(空)</option>
+                      <option
+                        v-for="opt in picklistOptions(col)"
+                        :key="opt.value"
+                        :value="opt.value"
+                      >{{ opt.label || opt.value }}</option>
+                    </select>
+                    <select
+                      v-else-if="fieldType(col) === 'multipicklist'"
+                      :ref="(el) => setCellEditorRef(el)"
+                      class="cell-editor cell-editor-multi"
+                      multiple
+                      @change="onCellEditorMultiChange(idx, col, $event.target)"
+                      @keydown.esc.prevent="cancelEditCell"
+                      @blur="onCellEditorBlur"
+                      @click.stop
+                    >
+                      <option
+                        v-for="opt in picklistOptions(col)"
+                        :key="opt.value"
+                        :value="opt.value"
+                        :selected="cellEditorMultiValues(idx, col).includes(opt.value)"
+                      >{{ opt.label || opt.value }}</option>
+                    </select>
+                    <input
+                      v-else-if="cellFieldKind(col) === 'date'"
+                      :ref="(el) => setCellEditorRef(el)"
+                      class="cell-editor"
+                      type="date"
+                      :value="cellEditorValue(idx, col)"
+                      @input="onCellEditorInput(idx, col, $event.target.value)"
+                      @keydown.enter.prevent="commitEditCell"
+                      @keydown.esc.prevent="cancelEditCell"
+                      @blur="onCellEditorBlur"
+                      @click.stop
+                    />
+                    <input
+                      v-else-if="cellFieldKind(col) === 'datetime'"
+                      :ref="(el) => setCellEditorRef(el)"
+                      class="cell-editor"
+                      type="datetime-local"
+                      :value="cellEditorValue(idx, col)"
+                      @input="onCellEditorInput(idx, col, $event.target.value)"
+                      @keydown.enter.prevent="commitEditCell"
+                      @keydown.esc.prevent="cancelEditCell"
+                      @blur="onCellEditorBlur"
+                      @click.stop
+                    />
+                    <input
+                      v-else-if="cellFieldKind(col) === 'time'"
+                      :ref="(el) => setCellEditorRef(el)"
+                      class="cell-editor"
+                      type="time"
+                      step="1"
+                      :value="cellEditorValue(idx, col)"
+                      @input="onCellEditorInput(idx, col, $event.target.value)"
+                      @keydown.enter.prevent="commitEditCell"
+                      @keydown.esc.prevent="cancelEditCell"
+                      @blur="onCellEditorBlur"
+                      @click.stop
+                    />
+                    <input
+                      v-else-if="cellFieldKind(col) === 'number'"
+                      :ref="(el) => setCellEditorRef(el)"
+                      class="cell-editor"
+                      type="number"
+                      :step="fieldType(col) === 'int' || fieldType(col) === 'long' ? '1' : 'any'"
+                      :value="cellEditorValue(idx, col)"
+                      @input="onCellEditorInput(idx, col, $event.target.value)"
+                      @keydown.enter.prevent="commitEditCell"
+                      @keydown.esc.prevent="cancelEditCell"
+                      @blur="onCellEditorBlur"
+                      @click.stop
+                    />
+                    <textarea
+                      v-else-if="fieldType(col) === 'textarea'"
+                      :ref="(el) => setCellEditorRef(el)"
+                      class="cell-editor cell-editor-area"
+                      rows="3"
+                      :value="cellEditorValue(idx, col)"
+                      @input="onCellEditorInput(idx, col, $event.target.value)"
+                      @keydown.esc.prevent="cancelEditCell"
+                      @blur="onCellEditorBlur"
+                      @click.stop
+                    />
+                    <input
+                      v-else
+                      :ref="(el) => setCellEditorRef(el)"
+                      class="cell-editor"
+                      :type="textInputType(col)"
+                      :value="cellEditorValue(idx, col)"
+                      @input="onCellEditorInput(idx, col, $event.target.value)"
+                      @keydown.enter.prevent="commitEditCell"
+                      @keydown.esc.prevent="cancelEditCell"
+                      @blur="onCellEditorBlur"
+                      @click.stop
+                    />
+                  </template>
+                  <span v-else class="cell-text">{{ cellDisplayValue(idx, col) }}</span>
+                </td>
               </tr>
             </tbody>
           </table>
           <p v-else class="list-hint results-empty">执行查询后在此显示结果</p>
         </div>
+        <div v-if="hasDirtyCells" class="results-edit-bar">
+          <span class="edit-hint">有未提交的修改（黄色单元格）</span>
+          <button type="button" class="btn btn-sm" :disabled="submittingEdits" @click="revertAllEdits">复原</button>
+          <button type="button" class="btn btn-primary btn-sm" :disabled="submittingEdits" @click="openSubmitConfirm">
+            {{ submittingEdits ? '提交中…' : '提交' }}
+          </button>
+        </div>
       </section>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="ctxMenu.show"
+        class="ctx-menu"
+        :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
+        @click.stop
+      >
+        <button type="button" class="ctx-item" :disabled="!ctxMenu.canCopy" @click="ctxCopyCell">复制</button>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div v-if="submitConfirmOpen" class="confirm-overlay" @click.self="submitConfirmOpen = false">
+        <div class="confirm-dialog" role="dialog" aria-modal="true">
+          <h3>确认提交修改？</h3>
+          <p>将把 {{ dirtyEditCount }} 处单元格修改写回 Salesforce，此操作不可自动撤销。</p>
+          <ul class="confirm-list">
+            <li v-for="item in dirtyEditPreview" :key="item.key">
+              <code>{{ item.objectApi }}</code>
+              · {{ item.field }}
+              · <span class="dim">{{ item.from }}</span>
+              →
+              <strong>{{ item.to }}</strong>
+            </li>
+            <li v-if="dirtyEditCount > dirtyEditPreview.length" class="dim">
+              …还有 {{ dirtyEditCount - dirtyEditPreview.length }} 处未列出
+            </li>
+          </ul>
+          <div class="confirm-actions">
+            <button type="button" class="btn btn-sm" @click="submitConfirmOpen = false">取消</button>
+            <button type="button" class="btn btn-primary btn-sm" :disabled="submittingEdits" @click="confirmSubmitEdits">
+              {{ submittingEdits ? '提交中…' : '确认提交' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { SfRestClient, listSfEnvironments, fetchSfSession } from '../_shared/sfApi.js'
 import { DEFAULT_STANDARD_WHITELIST, getObjectKind } from './soqlConstants.js'
 import { openObjectDetailTab } from '../_shared/toolWindows.js'
+import {
+  activePicklistOptions,
+  buildWhereClause,
+  defaultOperator,
+  formatCondition,
+  isMultiValue,
+  needsValue,
+  needsValue2,
+  nextConditionId,
+  operatorsForKind,
+  valueKind
+} from './soqlWhere.js'
 
 const envs = ref([])
 const selectedEnvId = ref('')
@@ -229,14 +621,30 @@ const fieldKindFilter = ref('all') // all | standard | custom
 const selectedFieldSet = ref(new Set())
 const selectedFieldNames = ref([])
 const loadingFields = ref(false)
+const fieldPanelMode = ref('select') // select | where
+const whereConditions = ref([])
 
 const soqlText = ref('')
+const soqlEditorOpen = ref(false)
+const soqlEditorEl = ref(null)
+const fieldSuggestions = ref([])
+const suggestIndex = ref(0)
+const suggestReplace = ref(null) // { start, end }
 const limitEnabled = ref(false)
 const queryLimit = ref(10)
 const executing = ref(false)
 const resultColumns = ref([])
 const resultRows = ref([])
 const resultDone = ref(true)
+
+/** 单元格编辑：key = `${rowIdx}::${col}` → { original, current } */
+const cellEdits = ref({})
+const selectedCell = ref(null) // { row, col }
+const editingCell = ref(null)
+const cellEditorEl = ref(null)
+const ctxMenu = ref({ show: false, x: 0, y: 0, canCopy: false, row: -1, col: '' })
+const submitConfirmOpen = ref(false)
+const submittingEdits = ref(false)
 
 const errorMessage = ref('')
 const statusMessage = ref('')
@@ -272,10 +680,80 @@ const filteredFields = computed(() => {
   return list
 })
 
-const canBuildQuery = computed(
-  () => !!currentObject.value && selectedFieldNames.value.length > 0
-)
 const canExecute = computed(() => !!selectedEnv.value && !!soqlText.value.trim())
+
+const validWhereCount = computed(() => {
+  let n = 0
+  for (const cond of whereConditions.value) {
+    const field = fieldsMap.value[cond.fieldApiName]
+    if (formatCondition(cond, field)) n += 1
+  }
+  return n
+})
+
+function fieldLabel(apiName) {
+  return fieldsMap.value[apiName]?.label || apiName
+}
+
+function whereKind(cond) {
+  return valueKind(fieldsMap.value[cond.fieldApiName]?.type)
+}
+
+function operatorsForField(apiName) {
+  return operatorsForKind(valueKind(fieldsMap.value[apiName]?.type))
+}
+
+function picklistOptions(apiName) {
+  return activePicklistOptions(fieldsMap.value[apiName])
+}
+
+function onWhereOperatorChange(cond) {
+  if (cond.operator === 'IN' && whereKind(cond) === 'picklist') {
+    cond.value = Array.isArray(cond.value) ? cond.value : cond.value ? [cond.value] : []
+  } else if (Array.isArray(cond.value)) {
+    cond.value = cond.value[0] ?? ''
+  }
+  if (!needsValue2(cond.operator)) cond.value2 = ''
+  if (!needsValue(cond.operator)) {
+    cond.value = ''
+    cond.value2 = ''
+  }
+  syncSoqlFromBuilder()
+}
+
+function addWhereCondition(field) {
+  if (!field?.filterable) return
+  const kind = valueKind(field.type)
+  whereConditions.value = [
+    ...whereConditions.value,
+    {
+      id: nextConditionId(whereConditions.value),
+      fieldApiName: field.name,
+      operator: defaultOperator(kind),
+      value: kind === 'boolean' ? 'true' : '',
+      value2: ''
+    }
+  ]
+  syncSoqlFromBuilder()
+}
+
+function removeWhereCondition(id) {
+  whereConditions.value = whereConditions.value.filter((c) => c.id !== id)
+  syncSoqlFromBuilder()
+}
+
+function clearWhereConditions() {
+  whereConditions.value = []
+  syncSoqlFromBuilder()
+}
+
+function onFieldCardClick(field) {
+  if (fieldPanelMode.value === 'where') {
+    addWhereCondition(field)
+    return
+  }
+  toggleField(field.name)
+}
 
 function syncSelectedArray() {
   // 按字段列表（describe）顺序，而非点击顺序
@@ -285,6 +763,9 @@ function syncSelectedArray() {
 }
 
 function fieldTooltip(field) {
+  if (fieldPanelMode.value === 'where' && !field.filterable) {
+    return `${field.label}\n${field.name} · ${field.type}\n不可用于 WHERE`
+  }
   return `${field.label}\n${field.name} · ${field.type}`
 }
 
@@ -303,8 +784,13 @@ async function copyFieldText(field) {
   await copyText(`${field.label} (${field.name})`)
 }
 
-/** 点标签/API：确保选中并复制；已选中时不取消，避免复制时误取消 */
+/** 点标签/API：选字段模式下选中并复制；加条件模式下添加条件并复制 */
 async function onFieldTextClick(name, text) {
+  if (fieldPanelMode.value === 'where') {
+    addWhereCondition(fieldsMap.value[name])
+    await copyText(text)
+    return
+  }
   if (!selectedFieldSet.value.has(name)) {
     const next = new Set(selectedFieldSet.value)
     next.add(name)
@@ -321,6 +807,392 @@ function formatCell(val) {
     return JSON.stringify(val)
   }
   return String(val)
+}
+
+function cellKey(rowIdx, col) {
+  return `${rowIdx}::${col}`
+}
+
+function isCellSelected(rowIdx, col) {
+  return selectedCell.value?.row === rowIdx && selectedCell.value?.col === col
+}
+
+function isCellEditing(rowIdx, col) {
+  return editingCell.value?.row === rowIdx && editingCell.value?.col === col
+}
+
+function isCellDirty(rowIdx, col) {
+  return !!cellEdits.value[cellKey(rowIdx, col)]
+}
+
+function cellRawOriginal(rowIdx, col) {
+  return resultRows.value[rowIdx]?.[col]
+}
+
+function fieldType(col) {
+  return fieldsMap.value[col]?.type || 'string'
+}
+
+function cellFieldKind(col) {
+  return valueKind(fieldType(col))
+}
+
+function isFieldNillable(col) {
+  return fieldsMap.value[col]?.nillable !== false
+}
+
+function textInputType(col) {
+  const t = fieldType(col)
+  if (t === 'email') return 'email'
+  if (t === 'url') return 'url'
+  if (t === 'phone') return 'tel'
+  return 'text'
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0')
+}
+
+/** Salesforce datetime → datetime-local（本地时区） */
+function sfDatetimeToLocal(iso) {
+  const s = String(iso || '').trim()
+  if (!s) return ''
+  const d = new Date(s)
+  if (!Number.isNaN(d.getTime())) {
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  }
+  const m = s.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})/)
+  return m ? m[1] : s
+}
+
+function localToSfDatetime(local) {
+  const v = String(local || '').trim()
+  if (!v) return null
+  const d = new Date(v)
+  if (!Number.isNaN(d.getTime())) return d.toISOString()
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v)) return `${v}:00.000Z`
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(v)) {
+    return v.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(v) ? v : `${v}Z`
+  }
+  return v
+}
+
+function sfTimeToInput(raw) {
+  const s = String(raw || '').trim()
+  if (!s) return ''
+  // 17:30:00.000Z / 17:30:00
+  const m = s.match(/^(\d{2}:\d{2}(?::\d{2})?)/)
+  return m ? m[1] : s.slice(0, 8)
+}
+
+/** 原始值 → 编辑控件字符串（与控件 value 对齐） */
+function rawToEditString(col, raw) {
+  const kind = cellFieldKind(col)
+  if (raw == null || raw === '') return ''
+  if (kind === 'boolean') return raw === true || String(raw).toLowerCase() === 'true' ? 'true' : 'false'
+  if (kind === 'datetime') return sfDatetimeToLocal(raw)
+  if (kind === 'date') return String(raw).slice(0, 10)
+  if (kind === 'time') return sfTimeToInput(raw)
+  if (kind === 'number') return String(raw)
+  if (fieldType(col) === 'multipicklist') return String(raw)
+  return formatCell(raw)
+}
+
+function cellEditorValue(rowIdx, col) {
+  const edit = cellEdits.value[cellKey(rowIdx, col)]
+  if (edit) return edit.current
+  return rawToEditString(col, cellRawOriginal(rowIdx, col))
+}
+
+function cellEditorMultiValues(rowIdx, col) {
+  const raw = cellEditorValue(rowIdx, col)
+  if (!raw) return []
+  return String(raw).split(';').map((s) => s.trim()).filter(Boolean)
+}
+
+function cellDisplayValue(rowIdx, col) {
+  const edit = cellEdits.value[cellKey(rowIdx, col)]
+  if (edit) {
+    if (cellFieldKind(col) === 'boolean') {
+      if (edit.current === '') return ''
+      return edit.current === 'true' ? 'true' : 'false'
+    }
+    return edit.current
+  }
+  return formatCell(cellRawOriginal(rowIdx, col))
+}
+
+const hasDirtyCells = computed(() => Object.keys(cellEdits.value).length > 0)
+const dirtyEditCount = computed(() => Object.keys(cellEdits.value).length)
+
+const dirtyEditPreview = computed(() => {
+  const list = []
+  for (const [key, edit] of Object.entries(cellEdits.value)) {
+    const [rowStr, col] = key.split('::')
+    const rowIdx = Number(rowStr)
+    const row = resultRows.value[rowIdx]
+    list.push({
+      key,
+      objectApi: rowObjectType(row) || currentObject.value?.name || '?',
+      field: col,
+      from: edit.original,
+      to: edit.current
+    })
+  }
+  return list.slice(0, 12)
+})
+
+function clearCellEdits() {
+  cellEdits.value = {}
+  selectedCell.value = null
+  editingCell.value = null
+}
+
+function setCellEditorRef(el) {
+  if (el) cellEditorEl.value = el
+}
+
+function selectResultCell(rowIdx, col) {
+  if (editingCell.value && !isCellEditing(rowIdx, col)) {
+    commitEditCell()
+  }
+  selectedCell.value = { row: rowIdx, col }
+}
+
+function canEditColumn(col) {
+  if (!col || col === 'Id' || col === 'attributes') return false
+  const meta = fieldsMap.value[col]
+  if (meta && meta.updateable === false) return false
+  return true
+}
+
+function startEditCell(rowIdx, col) {
+  if (!canEditColumn(col)) {
+    statusMessage.value = `字段 ${col} 不可编辑`
+    return
+  }
+  const raw = cellRawOriginal(rowIdx, col)
+  if (raw != null && typeof raw === 'object') {
+    statusMessage.value = `字段 ${col} 为复杂类型，暂不支持在此编辑`
+    return
+  }
+  selectedCell.value = { row: rowIdx, col }
+  editingCell.value = { row: rowIdx, col }
+  nextTick(() => {
+    const el = cellEditorEl.value
+    if (el) {
+      el.focus()
+      el.select?.()
+    }
+  })
+}
+
+function applyCellEdit(rowIdx, col, value) {
+  const key = cellKey(rowIdx, col)
+  const existing = cellEdits.value[key]
+  const original = existing ? existing.original : rawToEditString(col, cellRawOriginal(rowIdx, col))
+  const current = String(value ?? '')
+  const next = { ...cellEdits.value }
+  if (current === String(original)) {
+    delete next[key]
+  } else {
+    next[key] = { original, current }
+  }
+  cellEdits.value = next
+}
+
+function onCellEditorInput(rowIdx, col, value) {
+  applyCellEdit(rowIdx, col, value)
+}
+
+function onCellEditorChange(rowIdx, col, value) {
+  applyCellEdit(rowIdx, col, value)
+  // 下拉类改完即退出编辑，减少二次点击
+  if (cellFieldKind(col) === 'boolean' || cellFieldKind(col) === 'picklist') {
+    commitEditCell()
+  }
+}
+
+function onCellEditorMultiChange(rowIdx, col, selectEl) {
+  const values = Array.from(selectEl.selectedOptions || []).map((o) => o.value)
+  applyCellEdit(rowIdx, col, values.join(';'))
+}
+
+function commitEditCell() {
+  editingCell.value = null
+}
+
+function onCellEditorBlur(e) {
+  const cell = e.currentTarget?.closest?.('td.result-cell')
+  if (cell && e.relatedTarget && cell.contains(e.relatedTarget)) return
+  // 等 change/input 先落盘（日期面板、下拉）
+  setTimeout(() => {
+    if (!editingCell.value) return
+    const active = document.activeElement
+    if (active?.closest?.('.cell-editor')) return
+    commitEditCell()
+  }, 0)
+}
+
+function cancelEditCell() {
+  if (!editingCell.value) return
+  const { row, col } = editingCell.value
+  const key = cellKey(row, col)
+  const next = { ...cellEdits.value }
+  delete next[key]
+  cellEdits.value = next
+  editingCell.value = null
+}
+
+function revertAllEdits() {
+  clearCellEdits()
+  statusMessage.value = '已放弃全部修改'
+}
+
+function openSubmitConfirm() {
+  if (!hasDirtyCells.value) return
+  commitEditCell()
+  submitConfirmOpen.value = true
+}
+
+async function confirmSubmitEdits() {
+  if (!client || !hasDirtyCells.value) return
+  submittingEdits.value = true
+  errorMessage.value = ''
+  try {
+    const env = selectedEnv.value
+    if (env) {
+      const res = await fetchSfSession(env.hostname)
+      if (res?.success && res.session?.sessionId) {
+        client.sessionId = res.session.sessionId
+        client.hostname = res.session.hostname || client.hostname
+      }
+    }
+
+    // 按记录聚合 PATCH 字段
+    const byRecord = new Map()
+    for (const [key, edit] of Object.entries(cellEdits.value)) {
+      const [rowStr, col] = key.split('::')
+      const rowIdx = Number(rowStr)
+      const row = resultRows.value[rowIdx]
+      const id = rowRecordId(row)
+      const objectApi = rowObjectType(row) || currentObject.value?.name
+      if (!id || !objectApi) {
+        throw new Error(`第 ${rowIdx + 1} 行缺少 Id 或对象类型，无法提交`)
+      }
+      const mapKey = `${objectApi}::${id}`
+      if (!byRecord.has(mapKey)) {
+        byRecord.set(mapKey, { objectApi, id, rowIdx, fields: {} })
+      }
+      byRecord.get(mapKey).fields[col] = coerceEditValue(col, edit.current)
+    }
+
+    for (const item of byRecord.values()) {
+      await client.updateSObject(item.objectApi, item.id, item.fields)
+      // 回写本地行，保持与服务器一致
+      const row = resultRows.value[item.rowIdx]
+      if (row) {
+        Object.assign(row, item.fields)
+      }
+    }
+
+    clearCellEdits()
+    submitConfirmOpen.value = false
+    statusMessage.value = `已提交 ${byRecord.size} 条记录的修改`
+  } catch (e) {
+    errorMessage.value = e?.message || String(e)
+  } finally {
+    submittingEdits.value = false
+  }
+}
+
+function coerceEditValue(col, text) {
+  const type = fieldType(col)
+  const kind = valueKind(type)
+  const raw = String(text ?? '')
+  if (kind === 'boolean') {
+    if (raw === '') return null
+    return raw === 'true'
+  }
+  if (kind === 'datetime') {
+    return localToSfDatetime(raw)
+  }
+  if (kind === 'date' || kind === 'time') {
+    if (raw === '') return null
+    return raw
+  }
+  if (type === 'int' || type === 'long') {
+    if (raw === '') return null
+    const n = parseInt(raw, 10)
+    return Number.isFinite(n) ? n : raw
+  }
+  if (type === 'double' || type === 'currency' || type === 'percent') {
+    if (raw === '') return null
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : raw
+  }
+  if (raw === '') return null
+  return raw
+}
+
+function onAppContextMenu(e) {
+  // 编辑中：交给原生菜单（只复制选中文本）
+  if (e.target.closest('.cell-editor')) {
+    ctxMenu.value = { ...ctxMenu.value, show: false }
+    return
+  }
+  e.preventDefault()
+  const td = e.target.closest('td.result-cell')
+  if (!td) {
+    ctxMenu.value = { ...ctxMenu.value, show: false }
+    return
+  }
+  // 从 DOM 找行列：用选中逻辑 —— 右键时根据最近的 cell
+  // 通过遍历不太优雅；在 template 上 data-row/data-col
+  const row = Number(td.dataset.row)
+  const col = td.dataset.col
+  if (!Number.isFinite(row) || !col) {
+    ctxMenu.value = { ...ctxMenu.value, show: false }
+    return
+  }
+  if (editingCell.value) commitEditCell()
+  selectedCell.value = { row, col }
+  const pad = 4
+  let x = e.clientX
+  let y = e.clientY
+  const menuW = 120
+  const menuH = 40
+  if (x + menuW > window.innerWidth) x = window.innerWidth - menuW - pad
+  if (y + menuH > window.innerHeight) y = window.innerHeight - menuH - pad
+  ctxMenu.value = {
+    show: true,
+    x,
+    y,
+    canCopy: true,
+    row,
+    col
+  }
+}
+
+function onAppClick() {
+  if (ctxMenu.value.show) ctxMenu.value = { ...ctxMenu.value, show: false }
+}
+
+async function ctxCopyCell() {
+  const { row, col, canCopy } = ctxMenu.value
+  ctxMenu.value = { ...ctxMenu.value, show: false }
+  if (!canCopy) return
+  await copyText(cellDisplayValue(row, col))
+}
+
+function closeCtxOnScroll() {
+  if (ctxMenu.value.show) ctxMenu.value = { ...ctxMenu.value, show: false }
+}
+
+function onDocPointerDown(e) {
+  if (!ctxMenu.value.show) return
+  if (e.target?.closest?.('.ctx-menu')) return
+  ctxMenu.value = { ...ctxMenu.value, show: false }
 }
 
 async function refreshEnvs() {
@@ -355,9 +1227,12 @@ function resetWorkspace() {
   fieldsMap.value = {}
   selectedFieldSet.value = new Set()
   syncSelectedArray()
+  whereConditions.value = []
+  fieldPanelMode.value = 'select'
   soqlText.value = ''
   resultColumns.value = []
   resultRows.value = []
+  clearCellEdits()
   client = null
 }
 
@@ -395,7 +1270,10 @@ async function onEnvChange() {
   fieldsMap.value = {}
   selectedFieldSet.value = new Set()
   syncSelectedArray()
+  whereConditions.value = []
+  fieldPanelMode.value = 'select'
   soqlText.value = ''
+  clearCellEdits()
   await connectSelectedEnv()
 }
 
@@ -440,6 +1318,8 @@ async function selectObject(obj) {
   currentObject.value = obj
   fieldSearch.value = ''
   fieldKindFilter.value = 'all'
+  fieldPanelMode.value = 'select'
+  whereConditions.value = []
   loadingFields.value = true
   errorMessage.value = ''
   try {
@@ -447,12 +1327,15 @@ async function selectObject(obj) {
     const map = {}
     for (const field of desc.fields || []) {
       if (field.deprecatedAndHidden) continue
-      // 不按 sortable 过滤：reference 等字段常为 sortable=false，但仍可出现在 SELECT 中
       map[field.name] = {
         name: field.name,
         label: field.label || field.name,
         type: field.type || 'string',
-        custom: !!field.custom
+        custom: !!field.custom,
+        updateable: field.updateable !== false,
+        filterable: field.filterable === true,
+        nillable: !!field.nillable,
+        picklistValues: field.picklistValues || []
       }
     }
     fieldsMap.value = map
@@ -460,11 +1343,12 @@ async function selectObject(obj) {
     const defaults = ['Id', 'Name'].filter((n) => map[n])
     selectedFieldSet.value = new Set(defaults)
     syncSelectedArray()
-    applyGeneratedQuery()
+    syncSoqlFromBuilder()
   } catch (e) {
     fieldsMap.value = {}
     selectedFieldSet.value = new Set()
     syncSelectedArray()
+    whereConditions.value = []
     errorMessage.value = e.message || String(e)
   } finally {
     loadingFields.value = false
@@ -530,6 +1414,7 @@ function toggleField(name) {
   else next.add(name)
   selectedFieldSet.value = next
   syncSelectedArray()
+  syncSoqlFromBuilder()
 }
 
 function selectAllFields() {
@@ -537,17 +1422,20 @@ function selectAllFields() {
   for (const f of filteredFields.value) next.add(f.name)
   selectedFieldSet.value = next
   syncSelectedArray()
+  syncSoqlFromBuilder()
 }
 
 function clearFields() {
   selectedFieldSet.value = new Set()
   syncSelectedArray()
+  syncSoqlFromBuilder()
 }
 
 function buildSoql() {
   if (!currentObject.value || selectedFieldNames.value.length === 0) return ''
   const fields = selectedFieldNames.value.join(', ')
   let soql = `SELECT ${fields} FROM ${currentObject.value.name}`
+  soql += buildWhereClause(whereConditions.value, fieldsMap.value)
   if (limitEnabled.value) {
     const limit = Math.min(Math.max(Number(queryLimit.value) || 10, 1), 2000)
     soql += ` LIMIT ${limit}`
@@ -555,9 +1443,135 @@ function buildSoql() {
   return soql
 }
 
-function applyGeneratedQuery() {
+/** 点选 / 条件 / LIMIT 变更后立刻同步 SOQL */
+function syncSoqlFromBuilder() {
   const q = buildSoql()
-  if (q) soqlText.value = q
+  soqlText.value = q
+  clearFieldSuggestions()
+}
+
+function clearFieldSuggestions() {
+  fieldSuggestions.value = []
+  suggestIndex.value = 0
+  suggestReplace.value = null
+}
+
+/** 解析光标是否在 SELECT 字段列表中，且已有 FROM 对象 */
+function getSelectFieldSuggestContext(text, cursor) {
+  const src = String(text || '')
+  const pos = Math.max(0, Math.min(cursor ?? 0, src.length))
+  const fromMatch = src.match(/\bFROM\s+([A-Za-z_][\w]*)/i)
+  if (!fromMatch) return null
+
+  const fromIndex = src.search(/\bFROM\b/i)
+  if (fromIndex < 0 || pos > fromIndex) return null
+
+  const selectMatch = src.match(/\bSELECT\b/i)
+  if (!selectMatch || selectMatch.index == null) return null
+  if (pos <= selectMatch.index + 6) return null
+
+  const before = src.slice(0, pos)
+  const tokenMatch = before.match(/(?:SELECT\b|,)\s*([A-Za-z_][\w]*)$/i)
+  const emptyMatch = before.match(/(?:SELECT\b|,)\s*$/i)
+  if (!tokenMatch && !emptyMatch) return null
+
+  const prefix = tokenMatch ? tokenMatch[1] : ''
+  const start = tokenMatch ? pos - prefix.length : pos
+  return {
+    objectName: fromMatch[1],
+    prefix,
+    start,
+    end: pos
+  }
+}
+
+function refreshFieldSuggestions() {
+  if (!soqlEditorOpen.value) {
+    clearFieldSuggestions()
+    return
+  }
+  const el = soqlEditorEl.value
+  const cursor = el ? el.selectionStart : soqlText.value.length
+  const ctx = getSelectFieldSuggestContext(soqlText.value, cursor)
+  if (!ctx) {
+    clearFieldSuggestions()
+    return
+  }
+
+  const fromObj = ctx.objectName.toLowerCase()
+  const current = (currentObject.value?.name || '').toLowerCase()
+  // 仅当 FROM 对象与当前已 describe 的对象一致时提供联想
+  if (!current || fromObj !== current) {
+    clearFieldSuggestions()
+    return
+  }
+
+  const q = ctx.prefix.toLowerCase()
+  const list = Object.values(fieldsMap.value)
+    .filter((f) => {
+      if (!q) return true
+      return (
+        f.name.toLowerCase().startsWith(q) ||
+        (f.label || '').toLowerCase().includes(q)
+      )
+    })
+    .slice(0, 12)
+    .map((f) => ({ name: f.name, label: f.label || f.name, type: f.type }))
+
+  const prevNames = fieldSuggestions.value.map((i) => i.name).join('\0')
+  const nextNames = list.map((i) => i.name).join('\0')
+  fieldSuggestions.value = list
+  suggestReplace.value = list.length ? { start: ctx.start, end: ctx.end } : null
+  // 列表未变时保留当前高亮，避免 ↑↓ 后被 keyup 刷新打回第一项
+  if (prevNames !== nextNames) {
+    suggestIndex.value = 0
+  } else if (suggestIndex.value >= list.length) {
+    suggestIndex.value = Math.max(0, list.length - 1)
+  }
+}
+
+function onSoqlEditorActivity(e) {
+  // 导航键由 keydown 处理，keyup 再刷新会重置选中项
+  if (e?.type === 'keyup') {
+    const k = e.key
+    if (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Enter' || k === 'Tab' || k === 'Escape') {
+      return
+    }
+  }
+  nextTick(refreshFieldSuggestions)
+}
+
+function applyFieldSuggestion(item) {
+  if (!item?.name || !suggestReplace.value) return
+  const { start, end } = suggestReplace.value
+  const text = soqlText.value
+  soqlText.value = text.slice(0, start) + item.name + text.slice(end)
+  clearFieldSuggestions()
+  nextTick(() => {
+    const el = soqlEditorEl.value
+    if (!el) return
+    const pos = start + item.name.length
+    el.focus()
+    el.setSelectionRange(pos, pos)
+    refreshFieldSuggestions()
+  })
+}
+
+function onSoqlSuggestKeydown(e) {
+  if (!fieldSuggestions.value.length) return
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    suggestIndex.value = (suggestIndex.value + 1) % fieldSuggestions.value.length
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    suggestIndex.value =
+      (suggestIndex.value - 1 + fieldSuggestions.value.length) % fieldSuggestions.value.length
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault()
+    applyFieldSuggestion(fieldSuggestions.value[suggestIndex.value])
+  } else if (e.key === 'Escape') {
+    clearFieldSuggestions()
+  }
 }
 
 async function copySoql() {
@@ -576,6 +1590,7 @@ async function executeQuery() {
   statusMessage.value = '执行中…'
   resultColumns.value = []
   resultRows.value = []
+  clearCellEdits()
   try {
     // 若 Session 可能过期，执行前刷新一次
     const env = selectedEnv.value
@@ -606,15 +1621,23 @@ async function executeQuery() {
   }
 }
 
-watch(selectedFieldNames, () => {
-  // 字段变化时若编辑器仍是自动生成形态则同步；简单策略：有对象就刷新生成
-  if (currentObject.value && selectedFieldNames.value.length) {
-    // 不强制覆盖用户手改：仅当当前文本等于旧生成或为空时更新 —— 简化为总是可点「生成」
-  }
+watch([limitEnabled, queryLimit], () => {
+  syncSoqlFromBuilder()
+})
+
+watch(soqlEditorOpen, (open) => {
+  if (!open) clearFieldSuggestions()
 })
 
 onMounted(() => {
   refreshEnvs()
+  window.addEventListener('scroll', closeCtxOnScroll, true)
+  document.addEventListener('pointerdown', onDocPointerDown, true)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', closeCtxOnScroll, true)
+  document.removeEventListener('pointerdown', onDocPointerDown, true)
 })
 </script>
 
@@ -886,7 +1909,8 @@ onMounted(() => {
   margin-bottom: 0;
 }
 
-.field-filter-chips {
+.field-filter-chips,
+.field-mode-chips {
   display: flex;
   gap: 4px;
   padding: 0 10px;
@@ -917,6 +1941,18 @@ onMounted(() => {
   color: var(--accent-deep);
 }
 
+.chip-select.active {
+  background: #e3f2fd;
+  border-color: #1976d2;
+  color: #0d47a1;
+}
+
+.chip-where.active {
+  background: #e0f2f1;
+  border-color: #00897b;
+  color: #00695c;
+}
+
 .chip:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -928,11 +1964,58 @@ onMounted(() => {
   padding: 0 10px 2px;
 }
 
+.fields-panel .panel-head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fields-panel .mode-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+
+.fields-panel.mode-select .mode-badge {
+  background: #e3f2fd;
+  color: #1565c0;
+  border: 1px solid #90caf9;
+}
+
+.fields-panel.mode-where .mode-badge {
+  background: #e0f2f1;
+  color: #00695c;
+  border: 1px solid #80cbc4;
+}
+
+.fields-panel.mode-select .fields-list {
+  background: #f5f9ff;
+}
+
+.fields-panel.mode-where .fields-list {
+  background: #f1faf8;
+}
+
+.fields-panel.mode-where .panel-head {
+  background: #e8f5f3;
+  border-bottom-color: #b2dfdb;
+  color: #00695c;
+}
+
+.fields-panel.mode-where .field-toolbar {
+  background: #f1faf8;
+}
+
 .fields-list {
   padding: 4px 6px 6px;
   display: flex;
   flex-direction: column;
   gap: 3px;
+  transition: background 0.15s ease;
 }
 
 .field-item {
@@ -951,20 +2034,41 @@ onMounted(() => {
   transition: background 0.12s ease, border-color 0.12s ease;
 }
 
-.field-item:hover {
+.mode-select .field-item:hover {
   border-color: #90caf9;
   background: #f5f9ff;
 }
 
-.field-item.selected {
+.mode-select .field-item.selected {
   background: var(--soft);
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px rgba(25, 118, 210, 0.08);
 }
 
-.field-item.selected:hover {
+.mode-select .field-item.selected:hover {
   background: #d6eafb;
   border-color: var(--accent-2);
+}
+
+.mode-where .field-item {
+  border-color: #c8e6e3;
+}
+
+.mode-where .field-item.whereable:hover {
+  border-color: #26a69a;
+  background: #e0f2f1;
+}
+
+.mode-where .field-item.whereable .field-line1 {
+  color: #00695c;
+}
+
+.mode-where .field-item.unfilterable,
+.mode-where .field-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: #f7faf9;
+  border-color: #dde8e6;
 }
 
 .field-line1,
@@ -1062,16 +2166,208 @@ onMounted(() => {
   background: #f5f7fa;
 }
 
+.where-panel {
+  flex-shrink: 0;
+  max-height: 168px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 6px 10px 0;
+  border: 1px solid #e3f2fd;
+  border-radius: 6px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.where-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-deep);
+  border-bottom: 1px solid #e3f2fd;
+}
+
+.where-head .btn {
+  margin-left: auto;
+}
+
+.where-empty {
+  margin: 0;
+  padding: 8px;
+  font-size: 11px;
+  color: #90a4ae;
+  text-align: center;
+}
+
+.where-list {
+  overflow: auto;
+  padding: 4px 6px 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.where-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 3px 5px;
+  background: #fff;
+  border: 1px solid #e3f2fd;
+  border-radius: 4px;
+}
+
+.where-row.wide {
+  grid-column: 1 / -1;
+}
+
+.where-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 0 1 88px;
+}
+
+.where-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.where-api {
+  font-size: 10px;
+  color: #78909c;
+  font-family: Consolas, 'Courier New', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.where-op {
+  flex-shrink: 0;
+  width: 72px;
+  padding: 3px 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  background: #fff;
+}
+
+.where-values {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.where-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  padding: 3px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  box-sizing: border-box;
+}
+
+.where-multi {
+  min-height: 52px;
+}
+
+.where-to {
+  font-size: 10px;
+  color: #78909c;
+  flex-shrink: 0;
+}
+
+.where-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  color: #c62828;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.where-remove:hover {
+  background: #ffebee;
+}
+
+.soql-editor-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin: 8px 10px 0;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fafcff;
+}
+
+.soql-fold-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 36px;
+  padding: 4px 2px;
+  border: none;
+  border-right: 1px solid #e3f2fd;
+  background: var(--panel);
+  color: var(--accent-deep);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.soql-fold-btn:hover {
+  background: var(--soft);
+}
+
+.fold-caret {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.soql-editor-block {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #fafcff;
+}
+
 .soql-editor {
   flex-shrink: 0;
-  height: 96px;
-  max-height: 96px;
-  margin: 8px 10px 0;
+  height: 88px;
+  max-height: 88px;
+  margin: 0;
   resize: none;
   overflow: auto;
   padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: none;
+  border-radius: 0;
   font-family: Consolas, 'Courier New', monospace;
   font-size: 12px;
   line-height: 1.45;
@@ -1082,9 +2378,78 @@ onMounted(() => {
 
 .soql-editor:focus {
   outline: none;
-  border-color: var(--accent);
   background: #fff;
-  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.12);
+}
+
+.soql-suggest {
+  flex-shrink: 0;
+  max-height: 120px;
+  overflow: auto;
+  border-top: 1px solid #e3f2fd;
+  background: #fff;
+}
+
+.suggest-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 4px 10px;
+  border: none;
+  border-bottom: 1px solid #f0f4f8;
+  background: #fff;
+  cursor: pointer;
+}
+
+.suggest-item:hover,
+.suggest-item.active {
+  background: var(--soft);
+}
+
+.suggest-name {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-2);
+}
+
+.suggest-label {
+  font-size: 11px;
+  color: #78909c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.soql-preview {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 0;
+  background: #fafcff;
+  cursor: pointer;
+  text-align: left;
+  color: #546e7a;
+}
+
+.soql-preview:hover {
+  background: #f0f7ff;
+}
+
+.soql-preview-text {
+  flex: 1;
+  min-width: 0;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .results-head {
@@ -1106,6 +2471,207 @@ onMounted(() => {
   border: 1px solid #e3f2fd;
   border-radius: 6px;
   background: #fafcff;
+}
+
+.query-panel:has(.results-edit-bar) .results-wrap {
+  margin-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.results-table td.result-cell {
+  cursor: cell;
+  user-select: none;
+  position: relative;
+}
+
+.results-table td.result-cell.selected:not(.editing) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: #e8f4ff;
+}
+
+.results-table td.result-cell.dirty:not(.editing) {
+  background: #fff59d;
+}
+
+.results-table td.result-cell.dirty.selected:not(.editing) {
+  background: #ffe082;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.results-table td.result-cell.editing {
+  padding: 2px 4px;
+  overflow: visible;
+  background: #fffde7;
+  outline: 2px solid #f9a825;
+  outline-offset: -2px;
+  user-select: text;
+}
+
+.cell-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-editor {
+  display: block;
+  width: 100%;
+  min-width: 80px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid #f9a825;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 11px;
+  background: #fff;
+  color: inherit;
+}
+
+.cell-editor-multi {
+  min-width: 140px;
+  min-height: 72px;
+  max-height: 140px;
+}
+
+.cell-editor-area {
+  min-width: 160px;
+  min-height: 56px;
+  resize: vertical;
+  white-space: pre-wrap;
+  line-height: 1.35;
+}
+
+select.cell-editor {
+  cursor: pointer;
+}
+
+.results-edit-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px 10px;
+  padding: 8px 10px;
+  border: 1px solid #ffe082;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  background: #fffde7;
+}
+
+.results-edit-bar .edit-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: #f57f17;
+  font-weight: 600;
+}
+
+.ctx-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 120px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(25, 55, 90, 0.18);
+}
+
+.ctx-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--accent-deep);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ctx-item:hover:not(:disabled) {
+  background: var(--soft);
+}
+
+.ctx-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(20, 40, 70, 0.35);
+}
+
+.confirm-dialog {
+  width: min(440px, 100%);
+  max-height: min(70vh, 520px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 40px rgba(20, 40, 70, 0.22);
+  padding: 16px 18px;
+}
+
+.confirm-dialog h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: var(--accent-deep);
+}
+
+.confirm-dialog > p {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #546e7a;
+  line-height: 1.45;
+}
+
+.confirm-list {
+  margin: 0 0 14px;
+  padding: 8px 10px;
+  list-style: none;
+  background: #fafcff;
+  border: 1px solid #e3f2fd;
+  border-radius: 6px;
+  max-height: 200px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.confirm-list li + li {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed #e3f2fd;
+}
+
+.confirm-list code {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 10px;
+  color: var(--accent);
+}
+
+.confirm-list .dim {
+  color: #90a4ae;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .results-table {
@@ -1143,14 +2709,56 @@ onMounted(() => {
 .results-table th {
   position: sticky;
   top: 0;
-  background: var(--soft);
+  background: #e3f2fd;
   color: var(--accent-deep);
   font-weight: 600;
   z-index: 1;
+  vertical-align: bottom;
 }
 
 .results-table th.col-detail {
   z-index: 3;
+  vertical-align: middle;
+}
+
+.results-table th.col-head {
+  padding: 4px 8px;
+  white-space: normal;
+}
+
+.th-copy {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: copy;
+}
+
+.th-copy:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.th-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-deep);
+  line-height: 1.25;
+}
+
+.th-api {
+  margin-top: 1px;
+  font-size: 10px;
+  font-weight: 500;
+  font-family: Consolas, 'Courier New', monospace;
+  color: #5c7a9b;
+  line-height: 1.2;
 }
 
 .results-empty {
